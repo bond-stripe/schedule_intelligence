@@ -1,0 +1,25 @@
+$schema: https://stripe.com/stripe-app/v2.0.0/schema
+id: gmf-app
+name: Scheduled Subscription Search
+version: 0.0.1
+icon: ''
+declarations:
+  stripe_api_access:
+    permissions:
+      - permission: customer_read
+        purpose: Search customers by account_id metadata before listing subscription schedules
+      - permission: subscription_read
+        purpose: List subscription schedules for customers matching account_id metadata
+ui_extension:
+  views:
+    - viewport: stripe.dashboard.subscription.list
+      component: ScheduleSearch
+    - viewport: stripe.dashboard.customer.detail
+      component: ScheduleSearchCustomerDetail
+    - viewport: stripe.dashboard.subscription.detail
+      component: ScheduleSearchSubscriptionDetail
+    - viewport: stripe.dashboard.drawer.default
+      component: ScheduleSearchDrawer
+  content_security_policy:
+    purpose: ''
+extensions: []

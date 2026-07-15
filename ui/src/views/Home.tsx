@@ -1,13 +1,7 @@
-import {
-  Box,
-  ContextView,
-  Divider,
-  Inline,
-  Link,
-} from "@stripe/ui-extension-sdk/ui";
-import type { ExtensionContextValue } from "@stripe/ui-extension-sdk/context";
+import { Box, ContextView, Divider, Inline, Link } from '@stripe/ui-extension-sdk/ui';
+import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 
-import BrandIcon from "./brand_icon.svg";
+import BrandIcon from './brand_icon.svg';
 
 /**
  * This is a view that is rendered in the Stripe dashboard homepage.
@@ -21,13 +15,13 @@ const Home = ({ userContext, environment }: ExtensionContextValue) => {
       brandColor="#F6F8FA" // replace this with your brand color
       brandIcon={BrandIcon} // replace this with your brand icon
       externalLink={{
-        label: "Stripe Apps docs",
-        href: "https://stripe.com/docs/stripe-apps",
+        label: 'Stripe Apps docs',
+        href: 'https://stripe.com/docs/stripe-apps',
       }}
       footerContent={
         <>
-          <Box css={{ marginBottom: "medium" }}>
-            Questions? Get help with your app from the{" "}
+          <Box css={{ marginBottom: 'medium' }}>
+            Questions? Get help with your app from the{' '}
             <Link
               external
               href="https://stripe.com/docs/stripe-apps"
@@ -45,7 +39,7 @@ const Home = ({ userContext, environment }: ExtensionContextValue) => {
             >
               Stripe Support
             </Link>
-            , or the{" "}
+            , or the{' '}
             <Link
               external
               href="https://discord.com/invite/stripe"
@@ -59,36 +53,33 @@ const Home = ({ userContext, environment }: ExtensionContextValue) => {
         </>
       }
     >
-      <Box css={{ stack: "y", rowGap: "large" }}>
+      <Box css={{ stack: 'y', rowGap: 'large' }}>
         <Box>
-          <Box css={{ font: "heading" }}>Welcome to Stripe Apps</Box>
-          This Hello World app will introduce you to the basics of developing
-          your own app and consists of three{" "}
-          <Link
-            external
-            href="https://docs.stripe.com/stripe-apps/reference/viewports"
-          >
+          <Box css={{ font: 'heading' }}>Welcome to Stripe Apps</Box>
+          This Hello World app will introduce you to the basics of developing your own app
+          and consists of three{' '}
+          <Link external href="https://docs.stripe.com/stripe-apps/reference/viewports">
             viewports
           </Link>
           :
         </Box>
-        <Box css={{ whiteSpace: "break-spaces" }}>
-          1. Dashboard homepage{" "}
-          <Inline css={{ color: "secondary" }}>[currently on]</Inline> {"\n"}
-          2. Customers page {"\n"}
+        <Box css={{ whiteSpace: 'break-spaces' }}>
+          1. Dashboard homepage{' '}
+          <Inline css={{ color: 'secondary' }}>[currently on]</Inline> {'\n'}
+          2. Customers page {'\n'}
           3. Customer details page
         </Box>
         <Box>
-          First navigate to the customer list view by clicking on the{" "}
-          <Inline css={{ fontFamily: "monospace" }}>Customers</Inline> tab in
-          the left sidebar.
+          First navigate to the customer list view by clicking on the{' '}
+          <Inline css={{ fontFamily: 'monospace' }}>Customers</Inline> tab in the left
+          sidebar.
         </Box>
         <Divider />
-        <Box css={{ color: "info" }}>
-          Edit the file{" "}
-          <Inline css={{ fontFamily: "monospace", wordBreak: "break-all" }}>
+        <Box css={{ color: 'info' }}>
+          Edit the file{' '}
+          <Inline css={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
             src/views/Home.tsx
-          </Inline>{" "}
+          </Inline>{' '}
           and save to reload this view.
         </Box>
       </Box>

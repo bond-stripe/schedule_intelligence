@@ -1,13 +1,7 @@
-import {
-  Box,
-  ContextView,
-  Divider,
-  Inline,
-  Link,
-} from "@stripe/ui-extension-sdk/ui";
-import type { ExtensionContextValue } from "@stripe/ui-extension-sdk/context";
+import { Box, ContextView, Divider, Inline, Link } from '@stripe/ui-extension-sdk/ui';
+import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 
-import BrandIcon from "./brand_icon.svg";
+import BrandIcon from './brand_icon.svg';
 
 /**
  * This is a view that is rendered in the Stripe dashboard's customer list page.
@@ -21,12 +15,12 @@ const Customers = ({ userContext, environment }: ExtensionContextValue) => {
       brandColor="#F6F8FA" // replace this with your brand color
       brandIcon={BrandIcon} // replace this with your brand icon
       externalLink={{
-        label: "Stripe Apps docs",
-        href: "https://stripe.com/docs/stripe-apps",
+        label: 'Stripe Apps docs',
+        href: 'https://stripe.com/docs/stripe-apps',
       }}
       footerContent={
-        <Box css={{ marginBottom: "medium" }}>
-          Questions? Get help with your app from the{" "}
+        <Box css={{ marginBottom: 'medium' }}>
+          Questions? Get help with your app from the{' '}
           <Link
             external
             href="https://stripe.com/docs/stripe-apps"
@@ -44,7 +38,7 @@ const Customers = ({ userContext, environment }: ExtensionContextValue) => {
           >
             Stripe Support
           </Link>
-          , or the{" "}
+          , or the{' '}
           <Link
             external
             href="https://discord.com/invite/stripe"
@@ -57,17 +51,17 @@ const Customers = ({ userContext, environment }: ExtensionContextValue) => {
         </Box>
       }
     >
-      <Box css={{ stack: "y", rowGap: "large" }}>
+      <Box css={{ stack: 'y', rowGap: 'large' }}>
         <Box>
-          Click on a customer (or create a new one) to navigate to that
-          customer&rsquo;s detail view.
+          Click on a customer (or create a new one) to navigate to that customer&rsquo;s
+          detail view.
         </Box>
         <Divider />
-        <Box css={{ color: "info" }}>
-          Edit the file{" "}
-          <Inline css={{ fontFamily: "monospace", wordBreak: "break-all" }}>
+        <Box css={{ color: 'info' }}>
+          Edit the file{' '}
+          <Inline css={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
             src/views/Customers.tsx
-          </Inline>{" "}
+          </Inline>{' '}
           and save to reload this view.
         </Box>
       </Box>
