@@ -18,8 +18,6 @@ ui_extension:
       component: ScheduleSearchCustomerDetail
     - viewport: stripe.dashboard.subscription.detail
       component: ScheduleSearchSubscriptionDetail
-    - viewport: stripe.dashboard.drawer.default
-      component: ScheduleSearchDrawer
   content_security_policy:
     purpose: ''
 extensions: []

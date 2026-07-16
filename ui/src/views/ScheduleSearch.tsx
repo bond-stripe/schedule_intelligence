@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Stripe from 'stripe';
 
 import {
@@ -56,11 +56,6 @@ const formatDate = (timestamp: number) =>
     year: 'numeric',
   });
 
-const getDashboardPath = (
-  mode: ExtensionContextValue['environment']['mode'],
-  path: string
-) => `${mode === 'test' ? '/test' : ''}${path}`;
-
 const escapeSearchQueryValue = (value: string) =>
   value.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
 
@@ -68,6 +63,18 @@ const formatCustomerId = (customerId: string) =>
   customerId.length > 10 ? `cus_...${customerId.slice(-6)}` : customerId;
 
 const formatScheduleId = (scheduleId: string) => `sub_...${scheduleId.slice(-4)}`;
+
+const getDashboardPath = (
+  mode: ExtensionContextValue['environment']['mode'],
+  path: string
+) => `${mode === 'test' ? '/test' : ''}${path}`;
+
+// Absolute URL so result-row links open in a new tab, leaving this view (and its
+// results) mounted in the original tab.
+const getDashboardUrl = (
+  mode: ExtensionContextValue['environment']['mode'],
+  path: string
+) => `https://dashboard.stripe.com${getDashboardPath(mode, path)}`;
 
 const getScheduleStartDate = (schedule: Stripe.SubscriptionSchedule) =>
   schedule.phases[0]?.start_date ??
@@ -127,19 +134,6 @@ const ScheduleSearch = ({ environment }: ExtensionContextValue) => {
 
   const trimmedAccountId = accountId.trim();
   const canSearch = trimmedAccountId.length > 0 && !loading;
-
-  useEffect(() => {
-    if (!cachedSearch || loading) {
-      return;
-    }
-
-    setAccountId(cachedSearch.accountId);
-    setResults(cachedSearch.results);
-    setMatchedCustomerCount(cachedSearch.matchedCustomerCount);
-    setSearched(cachedSearch.searched);
-    setStoppedEarly(cachedSearch.stoppedEarly);
-    setError(null);
-  }, [cachedSearch, loading]);
 
   const resultSummary = useMemo(() => {
     if (!searched || loading || error) {
@@ -272,8 +266,7 @@ const ScheduleSearch = ({ environment }: ExtensionContextValue) => {
 
   return (
     <ContextView
-      title="Scheduled Subscription Search"
-      description="Find subscription schedules by customer account_id metadata."
+      title=""
       brandColor="#F6F8FA"
       brandIcon={BrandIcon}
       externalLink={{
@@ -314,10 +307,10 @@ const ScheduleSearch = ({ environment }: ExtensionContextValue) => {
 
         {error && <Banner type="critical" title="Search failed" description={error} />}
 
-        {resultSummary && (
+        {resultSummary && results.length === 0 && (
           <Banner
-            type={results.length > 0 ? 'default' : 'caution'}
-            title={results.length > 0 ? 'Search complete' : 'No matching schedules'}
+            type="caution"
+            title="No matching schedules"
             description={
               stoppedEarly
                 ? `${resultSummary} The scan stopped at the first limit.`
@@ -349,10 +342,12 @@ const ScheduleSearch = ({ environment }: ExtensionContextValue) => {
                         }}
                       >
                         <Link
-                          href={getDashboardPath(
+                          href={getDashboardUrl(
                             environment.mode,
                             `/customers/${schedule.customerId}`
                           )}
+                          target="_blank"
+                          external
                         >
                           {formatCustomerId(schedule.customerId)}
                         </Link>
@@ -380,15 +375,20 @@ const ScheduleSearch = ({ environment }: ExtensionContextValue) => {
                         }}
                       >
                         <Link
-                          href={getDashboardPath(
+                          href={getDashboardUrl(
                             environment.mode,
                             `/subscription_schedules/${schedule.scheduleId}`
                           )}
+                          target="_blank"
+                          external
                         >
                           {formatScheduleId(schedule.scheduleId)}
                         </Link>
                         <Box css={{ color: 'secondary', font: 'caption' }}>
-                          Start date: {formatDate(schedule.startDate)}
+                          Start date:
+                        </Box>
+                        <Box css={{ color: 'secondary', font: 'caption' }}>
+                          {formatDate(schedule.startDate)}
                         </Box>
                       </Box>
                     </TableCell>
