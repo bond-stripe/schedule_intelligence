@@ -1,6 +1,9 @@
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 
-export const SEARCH_STORAGE_KEY = 'scheduled-subscription-search:last-search:v6';
+export const SEARCH_STORAGE_KEY = 'scheduled-subscription-search:last-search:v9';
+export type ScheduleStatus =
+  'active' | 'canceled' | 'completed' | 'not_started' | 'released';
+
 export type SearchResult = {
   scheduleId: string;
   customerId: string;
@@ -8,6 +11,7 @@ export type SearchResult = {
   accountNumber: string;
   confirmationNumber: string;
   startDate: number;
+  status: ScheduleStatus;
 };
 
 export type CachedSearch = {
@@ -74,7 +78,12 @@ export const parseCachedSearch = (value: string | null): CachedSearch | null => 
           (typeof result.customerEmail === 'string' || result.customerEmail === null) &&
           typeof result.accountNumber === 'string' &&
           typeof result.confirmationNumber === 'string' &&
-          typeof result.startDate === 'number'
+          typeof result.startDate === 'number' &&
+          (result.status === 'active' ||
+            result.status === 'canceled' ||
+            result.status === 'completed' ||
+            result.status === 'not_started' ||
+            result.status === 'released')
       ),
       searched: parsed.searched,
       stoppedEarly: parsed.stoppedEarly,

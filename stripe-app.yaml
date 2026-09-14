@@ -7,9 +7,9 @@ declarations:
   stripe_api_access:
     permissions:
       - permission: customer_read
-        purpose: Search customers by account_id metadata before listing subscription schedules
+        purpose: Show customer details for matching subscription schedules
       - permission: subscription_read
-        purpose: List subscription schedules for customers matching account_id metadata
+        purpose: List subscription schedules created in the last 31 days and search first-phase metadata
 ui_extension:
   views:
     - viewport: stripe.dashboard.subscription.list

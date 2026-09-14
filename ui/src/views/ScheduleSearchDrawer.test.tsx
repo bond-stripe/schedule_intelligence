@@ -37,6 +37,7 @@ describe('ScheduleSearchDrawerView', () => {
             accountNumber: '123456',
             confirmationNumber: 'ABC123',
             startDate: 1704067200,
+            status: 'canceled',
           },
         ],
         searched: true,
@@ -63,6 +64,7 @@ describe('ScheduleSearchDrawerView', () => {
       'Account 123456 · Confirmation ABC123'
     );
     expect(wrapper.find(ContextView)).toContainText('Starts Dec 31, 2023');
+    expect(wrapper.find(ContextView)).toContainText('Canceled');
     expect(wrapper.find(ContextView)).toContainText('Previous');
     expect(wrapper.find(ContextView)).toContainText('Next');
   });
