@@ -6,7 +6,7 @@ import { useStorage } from '@stripe/ui-extension-sdk/data';
 
 import ScheduleSearch from './ScheduleSearch';
 import ScheduleSearchDrawer from './ScheduleSearchDrawer';
-import { SEARCH_STORAGE_KEY, type CachedSearch } from './scheduleSearchData';
+import type { CachedSearch } from './scheduleSearchData';
 import type { ListSchedulePage, SearchableSchedule } from './scheduleSearchEngine';
 
 const mockListSchedules = jest.fn<
@@ -29,7 +29,9 @@ const storageWrites = jest.fn();
 // Exercise actual React updates and a changing setter identity, as in the old
 // re-render regression, while sharing the saved string between viewport mounts.
 function useTestStorage(key: string): ReturnType<typeof useStorage> {
-  expect(key).toBe(SEARCH_STORAGE_KEY);
+  expect(key).toMatch(
+    /^scheduled-subscription-search:last-search:v11:acct_1234:(test|live)$/
+  );
   const [value, setValue] = useState(storedSearch);
   return [
     value,
@@ -55,11 +57,16 @@ const drawerContext = (mode: 'live' | 'test' = 'test'): ExtensionContextValue =>
 };
 
 const savedSearch: CachedSearch = {
-  accountNumber: '123456',
-  confirmationNumber: 'ABC123',
+  scope: { accountId: 'acct_1234', mode: 'test' },
+  criteria: {
+    accountNumber: '123456',
+    confirmationNumber: 'ABC123',
+    createdAfter: '2023-01-01',
+    createdBefore: '2024-01-01',
+  },
+  searchedAt: 1704067200,
   scannedScheduleCount: 1,
-  searched: true,
-  stoppedEarly: false,
+  status: 'complete',
   results: [
     {
       scheduleId: 'sub_sched_1234',
@@ -68,6 +75,9 @@ const savedSearch: CachedSearch = {
       accountNumber: '123456',
       confirmationNumber: 'ABC123',
       startDate: 1704067200,
+      endDate: 1735689600,
+      endedAt: null,
+      endBehavior: 'release',
       status: 'not_started',
     },
   ],
@@ -77,10 +87,15 @@ const matchingSchedule: SearchableSchedule = {
   customer: 'cus_1234',
   created: 1704067200,
   current_phase: null,
+  end_behavior: 'release',
+  canceled_at: null,
+  completed_at: null,
+  released_at: null,
   status: 'not_started',
   phases: [
     {
       start_date: 1704067200,
+      end_date: 1735689600,
       metadata: { AccountNumber: '123456', ConfirmationNumber: 'ABC123' },
     },
   ],
@@ -121,7 +136,10 @@ describe('ScheduleSearchDrawerView', () => {
   it.each(['live', 'test'] as const)(
     'restores results with %s links and no restore writes',
     async (mode) => {
-      storedSearch = JSON.stringify(savedSearch);
+      storedSearch = JSON.stringify({
+        ...savedSearch,
+        scope: { ...savedSearch.scope, mode },
+      });
       const { wrapper, update } = render(
         <ScheduleSearchDrawer {...drawerContext(mode)} />
       );

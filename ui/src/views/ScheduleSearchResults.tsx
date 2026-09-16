@@ -64,9 +64,44 @@ const ScheduleSearchResults = ({
             Account {result.accountNumber || '—'} · Confirmation{' '}
             {result.confirmationNumber || '—'}
           </Box>
-          <Box css={{ color: 'secondary', font: 'caption' }}>
-            Starts {formatDate(result.startDate)}
+          <Box
+            css={{
+              stack: 'x',
+              columnGap: 'medium',
+              rowGap: 'xxsmall',
+              wrap: 'wrap',
+              color: 'secondary',
+              font: 'caption',
+            }}
+          >
+            <Box>Starts {formatDate(result.startDate)}</Box>
+            <Box>
+              {result.status === 'active' || result.status === 'not_started'
+                ? 'Ends'
+                : 'Scheduled end'}{' '}
+              {formatDate(result.endDate)}
+            </Box>
           </Box>
+          {['canceled', 'released', 'completed'].includes(result.status) && (
+            <Box css={{ color: 'secondary', font: 'caption' }}>
+              {statusPresentation[result.status].label} {formatDate(result.endedAt)}
+            </Box>
+          )}
+          {result.status === 'released' ? (
+            <Box css={{ color: 'secondary', font: 'caption' }}>
+              Release does not cancel the subscription.
+            </Box>
+          ) : (
+            (result.status === 'active' || result.status === 'not_started') && (
+              <Box css={{ color: 'secondary', font: 'caption' }}>
+                {result.endBehavior === 'release'
+                  ? 'The subscription continues after the schedule ends.'
+                  : result.endBehavior === 'cancel'
+                    ? 'The subscription is scheduled to cancel when the schedule ends.'
+                    : 'The schedule end is not a confirmed subscription cancellation date.'}
+              </Box>
+            )
+          )}
         </Box>
         {index < results.length - 1 && <Divider />}
       </Box>

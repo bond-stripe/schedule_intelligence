@@ -1,6 +1,6 @@
 import {
   createScheduleSearch,
-  getScheduleCreatedCutoff,
+  getScheduleDates,
   MAX_PAGES_PER_BATCH,
   type ListSchedulePage,
   type SearchableSchedule,
@@ -15,10 +15,15 @@ const schedule = (
   customer: 'cus_123',
   created: 1704067200,
   current_phase: null,
+  end_behavior: 'release',
+  canceled_at: null,
+  completed_at: null,
+  released_at: null,
   status: 'not_started',
   phases: [
     {
       start_date: 1735689600,
+      end_date: 1767225600,
       metadata: { AccountNumber: account, ConfirmationNumber: confirmation },
     },
   ],
@@ -37,7 +42,7 @@ describe('schedule search engine', () => {
       listSchedules,
       accountNumber: '111',
       confirmationNumber: '',
-      createdAfter: 123456,
+      created: { gte: 123456, lt: 1900000000 },
       ...overrides,
     });
 
@@ -80,7 +85,7 @@ describe('schedule search engine', () => {
     expect((await newSearch().runBatch()).results).toEqual([]);
   });
 
-  it('preserves every schedule status in this increment', async () => {
+  it('includes all statuses by default', async () => {
     const statuses: SearchableSchedule['status'][] = [
       'active',
       'canceled',
@@ -109,9 +114,9 @@ describe('schedule search engine', () => {
     const onProgress = jest.fn();
     const result = await newSearch().runBatch({ onProgress });
     expect(listSchedules.mock.calls.map(([params]) => params)).toEqual([
-      { created: { gte: 123456 }, limit: 100, expand: ['data.customer'] },
+      { created: { gte: 123456, lt: 1900000000 }, limit: 100, expand: ['data.customer'] },
       {
-        created: { gte: 123456 },
+        created: { gte: 123456, lt: 1900000000 },
         limit: 100,
         expand: ['data.customer'],
         starting_after: 'sub_sched_2',
@@ -271,8 +276,78 @@ describe('schedule search engine', () => {
     expect(listSchedules).toHaveBeenCalledTimes(2);
   });
 
-  it('keeps the existing rolling 31-day cutoff', () => {
-    const now = Date.UTC(2026, 8, 14, 12);
-    expect(getScheduleCreatedCutoff(now)).toBe(now / 1000 - 31 * 24 * 60 * 60);
+  it('counts released matches toward the result limit and stops at match 101', async () => {
+    const released = Array.from({ length: 100 }, (_, i) => ({
+      ...schedule(i),
+      status: 'released' as const,
+    }));
+    listSchedules
+      .mockResolvedValueOnce(page(released, true))
+      .mockResolvedValueOnce(page([{ ...schedule(101), status: 'released' }], true));
+    const result = await newSearch().runBatch();
+    expect(result.status).toBe('limit_reached');
+    expect(result.results).toHaveLength(100);
+    expect(result.results.every((row) => row.status === 'released')).toBe(true);
+    expect(result.scannedScheduleCount).toBe(101);
+    expect(listSchedules).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves both creation bounds across continuation and rejects invalid ranges', async () => {
+    const created = { gte: 123456, lt: 1900000000 };
+    const search = newSearch({ created, maxPagesPerBatch: 1 });
+    listSchedules
+      .mockResolvedValueOnce(page([schedule(1)], true))
+      .mockResolvedValueOnce(page([]));
+    await search.runBatch();
+    created.lt = 2000000000;
+    await search.runBatch();
+    expect(listSchedules.mock.calls[1][0].created).toEqual({
+      gte: 123456,
+      lt: 1900000000,
+    });
+    expect(() => newSearch({ created: { gte: 20, lt: 10 } })).toThrow('date range');
+  });
+
+  it('uses the last phase end, independent of the current phase', () => {
+    const item = schedule(1);
+    item.phases.push({ ...item.phases[0], start_date: 1767225600, end_date: 1798761600 });
+    item.current_phase = { start_date: 1735689600, end_date: 1767225600 };
+    expect(getScheduleDates(item)).toEqual({
+      startDate: 1735689600,
+      endDate: 1798761600,
+      endedAt: null,
+      endBehavior: 'release',
+    });
+  });
+
+  it.each([
+    ['canceled', 'canceled_at'],
+    ['completed', 'completed_at'],
+    ['released', 'released_at'],
+  ] as const)(
+    'keeps the actual %s date distinct from the scheduled end',
+    (status, field) => {
+      const item = { ...schedule(1), status, [field]: 1750000000 };
+      expect(getScheduleDates(item)).toMatchObject({
+        endDate: 1767225600,
+        endedAt: 1750000000,
+      });
+    }
+  );
+
+  it('does not invent start/end dates when the schedule has no phases', () => {
+    const item = { ...schedule(1), phases: [] };
+    expect(getScheduleDates(item)).toMatchObject({ startDate: null, endDate: null });
+    item.current_phase = null;
+  });
+
+  it('discards invalid dates and preserves cancel end behavior', () => {
+    const item = schedule(1);
+    item.phases[0].end_date = NaN;
+    item.end_behavior = 'cancel';
+    expect(getScheduleDates(item)).toMatchObject({
+      endDate: null,
+      endBehavior: 'cancel',
+    });
   });
 });

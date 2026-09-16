@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { render, getMockContextProps } from '@stripe/ui-extension-sdk/testing';
 import {
   Banner,
+  Checkbox,
+  DateField,
   Button,
   ContextView,
   Link,
@@ -11,6 +13,8 @@ import {
 import { useStorage } from '@stripe/ui-extension-sdk/data';
 
 import ScheduleSearch from './ScheduleSearch';
+import { getSearchStorageKey } from './scheduleSearchData';
+import { getDefaultSearchCriteria, getCreatedRange } from './scheduleSearchDates';
 import type { ListSchedulePage, SearchableSchedule } from './scheduleSearchEngine';
 
 const mockListSchedules = jest.fn<
@@ -33,8 +37,18 @@ const schedule = (id: number, accountNumber = '111'): SearchableSchedule => ({
   customer: 'cus_123',
   created: 1704067200,
   current_phase: null,
+  end_behavior: 'release',
+  canceled_at: null,
+  completed_at: null,
+  released_at: null,
   status: 'not_started',
-  phases: [{ start_date: 1735689600, metadata: { AccountNumber: accountNumber } }],
+  phases: [
+    {
+      start_date: 1735689600,
+      end_date: 1767225600,
+      metadata: { AccountNumber: accountNumber },
+    },
+  ],
 });
 const page = (data: SearchableSchedule[], has_more = false) => ({ data, has_more });
 const deferredPage = () => {
@@ -63,12 +77,18 @@ describe('ScheduleSearchView', () => {
     mockUseStorage.mockReturnValue([null, setStoredSearch]);
   });
 
-  it('renders the existing search criteria', () => {
+  it('renders the search criteria without a redundant heading or info tooltip', () => {
     const { wrapper } = render(<ScheduleSearch {...getMockContextProps()} />);
     expect(wrapper.find(TextField)).toHaveProps({ label: 'Account number' });
-    expect(wrapper.find(Tooltip)).toContainText(
-      'Search schedules created in the last 31 days'
-    );
+    expect(wrapper.find(ContextView)).toContainText('Created date');
+    expect(wrapper.findAll(DateField).map((field) => field.prop('label'))).toEqual([
+      'From',
+      'To',
+    ]);
+    expect(wrapper.find(ContextView)).not.toContainText('Both dates are included.');
+    expect(wrapper.find(ContextView)).not.toContainText('Dates use your local time');
+    expect(wrapper.find(ContextView)).not.toContainText('Subscription schedule search');
+    expect(wrapper.find(Tooltip)).toBeNull();
     expect(wrapper.find(Button)).toHaveProps({ disabled: true });
   });
 
@@ -88,7 +108,7 @@ describe('ScheduleSearchView', () => {
     expect(wrapper.find(ContextView)).toContainText('2 results');
     expect(JSON.parse(setStoredSearch.mock.calls[1][0])).toMatchObject({
       scannedScheduleCount: 2,
-      stoppedEarly: false,
+      status: 'complete',
     });
     expect(wrapper.find(Link, { target: '_blank' })).toHaveProps({ external: true });
   });
@@ -109,7 +129,7 @@ describe('ScheduleSearchView', () => {
     expect(wrapper.find(ContextView)).not.toContainText('All 101');
     expect(mockListSchedules).toHaveBeenCalledTimes(2);
     const cached = JSON.parse(setStoredSearch.mock.calls[1][0]);
-    expect(cached.stoppedEarly).toBe(true);
+    expect(cached.status).toBe('limit_reached');
     expect(cached.results).toHaveLength(100);
   });
 
@@ -146,7 +166,11 @@ describe('ScheduleSearchView', () => {
     });
     expect(wrapper.find(ContextView)).toContainText('Schedule sub_sched_...ed_1');
     expect(setStoredSearch.mock.calls).toEqual([['']]);
-    requireNode(wrapper.find(Button)).trigger('onPress');
+    requireNode(
+      wrapper
+        .findAll(Button)
+        .find((button) => button.text === 'Retry remaining schedules')
+    ).trigger('onPress');
     await update();
     expect(wrapper.find(ContextView)).toContainText('2 results');
     expect(mockListSchedules.mock.calls[2][0]).toEqual(
@@ -199,30 +223,168 @@ describe('ScheduleSearchView', () => {
     expect(setStoredSearch.mock.calls).toEqual([['']]);
   });
 
-  it('restores a settled overflow result without making another API request', () => {
+  it('sends inclusive date bounds and saves the submitted filters', async () => {
+    mockListSchedules.mockResolvedValue({ data: [schedule(1)], has_more: false });
+    const { wrapper, update } = render(<ScheduleSearch {...getMockContextProps()} />);
+    requireNode(wrapper.find(DateField, { label: 'From' })).trigger(
+      'onChange',
+      '2026-01-01'
+    );
+    requireNode(wrapper.find(DateField, { label: 'To' })).trigger(
+      'onChange',
+      '2026-01-31'
+    );
+    startSearch(wrapper);
+    await update();
+    expect(mockListSchedules.mock.calls[0][0].created).toEqual(
+      getCreatedRange('2026-01-01', '2026-01-31').range
+    );
+    expect(JSON.parse(setStoredSearch.mock.calls[1][0])).toMatchObject({
+      scope: { accountId: 'acct_1234', mode: 'test' },
+      criteria: {
+        accountNumber: '111',
+        createdAfter: '2026-01-01',
+        createdBefore: '2026-01-31',
+      },
+      searchedAt: expect.any(Number),
+    });
+  });
+
+  it('prevents empty or reversed date ranges from issuing requests', () => {
+    const { wrapper } = render(<ScheduleSearch {...getMockContextProps()} />);
+    requireNode(wrapper.find(DateField, { label: 'From' })).trigger('onChange', '');
+    startSearch(wrapper);
+    expect(wrapper.find(DateField, { label: 'From' })).toHaveProps({
+      invalid: true,
+    });
+    expect(mockListSchedules).not.toHaveBeenCalled();
+    requireNode(wrapper.find(DateField, { label: 'From' })).trigger(
+      'onChange',
+      '2026-12-31'
+    );
+    requireNode(wrapper.find(DateField, { label: 'To' })).trigger(
+      'onChange',
+      '2026-01-01'
+    );
+    requireNode(wrapper.find(Button, { type: 'primary' })).trigger('onPress');
+    expect(wrapper.find(DateField, { label: 'To' })).toHaveProps({
+      invalid: true,
+    });
+    expect(mockListSchedules).not.toHaveBeenCalled();
+  });
+
+  it('includes released matches without a status checkbox', async () => {
+    mockListSchedules.mockResolvedValue({
+      data: [{ ...schedule(1), status: 'released', released_at: 1760000000 }],
+      has_more: false,
+    });
+    const { wrapper, update } = render(<ScheduleSearch {...getMockContextProps()} />);
+    expect(wrapper.find(Checkbox)).toBeNull();
+    startSearch(wrapper);
+    await update();
+    expect(wrapper.find(Banner, { title: 'No matching schedules' })).toBeNull();
+    expect(wrapper.find(ContextView)).toContainText('Schedule sub_sched_...ed_1');
+    expect(wrapper.find(Checkbox)).toBeNull();
+    expect(mockListSchedules).toHaveBeenCalledTimes(1);
+    const cached = JSON.parse(setStoredSearch.mock.calls[1][0]);
+    expect(cached.results[0].status).toBe('released');
+    expect(cached.criteria).not.toHaveProperty('includeReleased');
+  });
+
+  it('keeps results labeled with submitted criteria while refining and fetches fresh matches', async () => {
+    mockListSchedules
+      .mockResolvedValueOnce({ data: [schedule(1)], has_more: false })
+      .mockResolvedValueOnce({ data: [schedule(2, '222')], has_more: false });
+    const { wrapper, update } = render(<ScheduleSearch {...getMockContextProps()} />);
+    startSearch(wrapper);
+    await update();
+    requireNode(wrapper.find(TextField, { label: 'Account number' })).trigger(
+      'onChange',
+      { target: { value: '222' } }
+    );
+    expect(wrapper.find(Banner, { title: 'Filters changed' })).not.toBeNull();
+    expect(wrapper.find(ContextView)).toContainText('Account number 111');
+    expect(wrapper.find(ContextView)).toContainText('Schedule sub_sched_...ed_1');
+    requireNode(wrapper.find(Button, { type: 'primary' })).trigger('onPress');
+    await update();
+    expect(mockListSchedules).toHaveBeenCalledTimes(2);
+    expect(wrapper.find(ContextView)).toContainText('Account number 222');
+    expect(wrapper.find(ContextView)).toContainText('Schedule sub_sched_...ed_2');
+    expect(wrapper.find(Banner, { title: 'Filters changed' })).toBeNull();
+  });
+
+  it.each(['account', 'mode'] as const)(
+    'invalidates an in-flight scan when the %s changes',
+    async (change) => {
+      const pending = deferredPage();
+      mockListSchedules.mockReturnValueOnce(pending.promise);
+      const Harness = () => {
+        const [alternate, setAlternate] = useState(false);
+        return (
+          <ContextView title="Scope test">
+            <Button onPress={() => setAlternate(true)}>Switch scope</Button>
+            <ScheduleSearch
+              {...getMockContextProps({
+                userContext: {
+                  account: {
+                    id: alternate && change === 'account' ? 'acct_other' : 'acct_1234',
+                  },
+                },
+                environment: { mode: alternate && change === 'mode' ? 'live' : 'test' },
+              })}
+            />
+          </ContextView>
+        );
+      };
+      const { wrapper, update } = render(<Harness />);
+      startSearch(wrapper);
+      requireNode(wrapper.find(Button)).trigger('onPress');
+      await update();
+      pending.resolve({ data: [schedule(1)], has_more: true });
+      await update();
+      expect(mockListSchedules).toHaveBeenCalledTimes(1);
+      expect(setStoredSearch.mock.calls).toEqual([['']]);
+      expect(mockUseStorage).toHaveBeenCalledWith(
+        getSearchStorageKey({
+          accountId: change === 'account' ? 'acct_other' : 'acct_1234',
+          mode: change === 'mode' ? 'live' : 'test',
+        })
+      );
+      expect(wrapper.find(TextField, { label: 'Account number' })).toHaveProps({
+        value: '',
+      });
+    }
+  );
+
+  it('restores a settled overflow with criteria and its search time', () => {
     mockUseStorage.mockReturnValue([
       JSON.stringify({
-        accountNumber: '111',
-        confirmationNumber: '',
+        scope: { accountId: 'acct_1234', mode: 'test' },
+        criteria: { ...getDefaultSearchCriteria(), accountNumber: '111' },
+        searchedAt: 1704067200,
         scannedScheduleCount: 101,
-        searched: true,
-        stoppedEarly: true,
-        results: [
-          {
-            scheduleId: 'sub_sched_1',
-            customerId: 'cus_123',
-            customerEmail: null,
-            accountNumber: '111',
-            confirmationNumber: '',
-            startDate: 1735689600,
-            status: 'not_started',
-          },
-        ],
+        status: 'limit_reached',
+        results: Array.from({ length: 100 }, (_, i) => ({
+          scheduleId: 'sub_sched_' + i,
+          customerId: 'cus_123',
+          customerEmail: null,
+          accountNumber: '111',
+          confirmationNumber: '',
+          startDate: 1735689600,
+          endDate: 1767225600,
+          endedAt: null,
+          endBehavior: 'release',
+          status: 'not_started',
+        })),
       }),
       setStoredSearch,
     ]);
     const { wrapper } = render(<ScheduleSearch {...getMockContextProps()} />);
     expect(wrapper.find(Banner)).toHaveProps({ title: 'More than 100 matches' });
+    expect(wrapper.find(DateField, { label: 'From' })).toHaveProps({
+      value: getDefaultSearchCriteria().createdAfter,
+    });
+    expect(wrapper.find(ContextView)).toContainText('Search again to refresh');
     expect(mockListSchedules).not.toHaveBeenCalled();
   });
 });

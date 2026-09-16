@@ -16,20 +16,28 @@ Apps constraints" below before adding dependencies, network calls, or DOM/browse
 
 Support agents need to find schedules by first-phase `AccountNumber` and/or
 `ConfirmationNumber` metadata. Stripe has no schedule metadata search endpoint.
-The app lists schedules created in the last 31 days and filters their first-phase
-metadata locally with case-insensitive prefix matching (AND when both fields are set).
-All schedule statuses, including released, are currently included.
+The app lists schedules in a user-selected creation-date range (default: one calendar
+year ago through today), then filters first-phase metadata locally with case-insensitive
+prefix matching (AND when both fields are set). All statuses, including released
+schedules, are always eligible; there is no status filter.
 
 The page-by-page scanner lives in `ui/src/views/scheduleSearchEngine.ts`;
-`ScheduleSearch.tsx` manages its UI lifecycle. It retains up to 100 compact rows and
+`ScheduleSearch.tsx` renders the form and `useScheduleSearch.ts` manages its lifecycle.
+It retains up to 100 compact rows and
 stops at the 101st match. Searches pause after 20 pages and can be continued; failures
 retain partial matches and can retry the failed page. Never present an incomplete
 zero-match scan as a completed search.
 
 The earlier customer `account_id` lookup is no longer the current metadata contract.
 Do not replace the phase-metadata workflow with it or invent a schedule metadata
-search endpoint. The one-year default, date/status controls, and end-date display are
-planned as later increments; this first refactor deliberately retains the old window.
+search endpoint. Date inputs use the SDK `DateField`. Both dates are inclusive in local
+time; use `created.gte` and the next calendar day's `created.lt` (not a fixed 24 hours).
+The form stays visible and keeps edited criteria separate from submitted results.
+
+Schedule Ends comes from the **final** phase's `end_date`, already calculated by Stripe.
+Do not infer a total subscription term from price billing frequency or fetch prices for
+this display. Keep historical canceled/completed/released timestamps separate from the
+planned end, and explain that releasing a schedule does not cancel its subscription.
 
 ## Repository layout
 
@@ -110,8 +118,10 @@ report the actual output.** Do not assert success without running the commands.
   `rowGap`, `font`). There is no raw HTML/DOM, no arbitrary CSS, and browser globals are
   restricted. Every view's root should be a `ContextView` (or another top-level view component).
 - **Persisting UI state** uses `useStorage` from `@stripe/ui-extension-sdk/data`
-  (see the cached-search pattern in `ScheduleSearch.tsx` — values are JSON strings and must
-  be defensively parsed/validated on read).
+  (see `useScheduleSearch.ts` — values are JSON strings and must be defensively validated
+  on read). Cache keys and bodies include account/mode; legacy cache schemas are ignored.
+  The owning view is keyed by scope to reset state and invalidate in-flight work on an
+  account/mode change. Hydrate on mount without a storage-write/restore effect loop.
 - **React is v17** (`@types/react` pinned to `^17`). Don't use React 18+ APIs.
 - **Object context**: viewport components receive `environment` (mode, `objectContext`) and
   `userContext` via `ExtensionContextValue`. Use `environment.mode` to build `/test`-prefixed
@@ -126,7 +136,7 @@ report the actual output.** Do not assert success without running the commands.
   via the wrapper (`wrapper.find(TextField)`, `.toContainText(...)`, `.toHaveProps(...)`).
 - **Pagination/limits**: preserve `MAX_PAGES_PER_BATCH` and `MAX_RESULTS`. Keep overflow,
   pause, cancellation, failure, and completion distinct. Resuming uses the existing
-  search's criteria, creation cutoff, matches, and cursor. Only settled scans (complete
+  search's criteria, creation bounds, matches, and cursor. Only settled scans (complete
   or overflow) are cached; starting a new scan clears the prior result cache.
 - **Search terms**: normalize prefixes once per scan, and match only the first phase's
   exact metadata keys. There is no Stripe Search query interpolation in this workflow.

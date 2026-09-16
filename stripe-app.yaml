@@ -9,7 +9,7 @@ declarations:
       - permission: customer_read
         purpose: Show customer details for matching subscription schedules
       - permission: subscription_read
-        purpose: List subscription schedules created in the last 31 days and search first-phase metadata
+        purpose: List subscription schedules in the selected creation date range and search first-phase metadata
 ui_extension:
   views:
     - viewport: stripe.dashboard.subscription.list

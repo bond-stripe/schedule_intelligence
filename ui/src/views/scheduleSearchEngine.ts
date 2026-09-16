@@ -1,18 +1,28 @@
 import type Stripe from 'stripe';
 
-import type { SearchResult } from './scheduleSearchData';
+import { isTimestamp, MAX_RESULTS, type SearchResult } from './scheduleSearchData';
+import type { CreatedRange } from './scheduleSearchDates';
 
 export const PAGE_SIZE = 100;
-export const MAX_RESULTS = 100;
 export const MAX_PAGES_PER_BATCH = 20;
-const SEARCH_WINDOW_SECONDS = 31 * 24 * 60 * 60;
 
 // Only the fields the scanner reads; a Stripe schedule is assignable to this type.
 export type SearchableSchedule = Pick<
   Stripe.SubscriptionSchedule,
-  'id' | 'customer' | 'created' | 'current_phase' | 'status'
+  | 'id'
+  | 'customer'
+  | 'created'
+  | 'current_phase'
+  | 'status'
+  | 'end_behavior'
+  | 'canceled_at'
+  | 'completed_at'
+  | 'released_at'
 > & {
-  phases: Pick<Stripe.SubscriptionSchedule.Phase, 'metadata' | 'start_date'>[];
+  phases: Pick<
+    Stripe.SubscriptionSchedule.Phase,
+    'metadata' | 'start_date' | 'end_date'
+  >[];
 };
 
 export type ListSchedulePage = (
@@ -30,8 +40,27 @@ export type ScanOutcome = SearchProgress &
     | { status: 'error'; error: string }
   );
 
-export const getScheduleCreatedCutoff = (nowMilliseconds = Date.now()) =>
-  Math.floor(nowMilliseconds / 1000) - SEARCH_WINDOW_SECONDS;
+export const getScheduleDates = (schedule: SearchableSchedule) => {
+  const start = schedule.phases[0]?.start_date ?? schedule.current_phase?.start_date;
+  const end = schedule.phases.at(-1)?.end_date;
+  const ended =
+    schedule.status === 'canceled'
+      ? schedule.canceled_at
+      : schedule.status === 'released'
+        ? schedule.released_at
+        : schedule.status === 'completed'
+          ? schedule.completed_at
+          : null;
+  return {
+    startDate: isTimestamp(start) ? start : null,
+    endDate: isTimestamp(end) && (!isTimestamp(start) || end >= start) ? end : null,
+    endedAt: isTimestamp(ended) ? ended : null,
+    endBehavior:
+      schedule.end_behavior === 'cancel' || schedule.end_behavior === 'release'
+        ? schedule.end_behavior
+        : ('other' as const),
+  };
+};
 
 export const getFirstPhaseSearchMetadata = (
   schedule: Pick<SearchableSchedule, 'phases'>
@@ -48,13 +77,13 @@ export const createScheduleSearch = ({
   listSchedules,
   accountNumber,
   confirmationNumber,
-  createdAfter,
+  created,
   maxPagesPerBatch = MAX_PAGES_PER_BATCH,
 }: {
   listSchedules: ListSchedulePage;
   accountNumber: string;
   confirmationNumber: string;
-  createdAfter: number;
+  created: CreatedRange;
   maxPagesPerBatch?: number;
 }) => {
   const accountPrefix = accountNumber.trim().toLowerCase();
@@ -65,6 +94,15 @@ export const createScheduleSearch = ({
   if (!Number.isInteger(maxPagesPerBatch) || maxPagesPerBatch < 1) {
     throw new Error('The page budget must be a positive integer.');
   }
+  if (
+    !isTimestamp(created.gte) ||
+    !isTimestamp(created.lt) ||
+    created.gte >= created.lt
+  ) {
+    throw new Error('Choose a valid creation date range.');
+  }
+  // Snapshot the bounds so editing criteria cannot change a resumed search.
+  const createdRange = { ...created };
 
   const results: SearchResult[] = [];
   let scannedScheduleCount = 0;
@@ -92,7 +130,7 @@ export const createScheduleSearch = ({
       let page: Awaited<ReturnType<ListSchedulePage>>;
       try {
         page = await listSchedules({
-          created: { gte: createdAfter },
+          created: { ...createdRange },
           expand: ['data.customer'],
           limit: PAGE_SIZE,
           ...(startingAfter ? { starting_after: startingAfter } : {}),
@@ -139,10 +177,7 @@ export const createScheduleSearch = ({
           customerEmail:
             typeof customer !== 'string' && 'email' in customer ? customer.email : null,
           ...metadata,
-          startDate:
-            schedule.phases[0]?.start_date ??
-            schedule.current_phase?.start_date ??
-            schedule.created,
+          ...getScheduleDates(schedule),
           status: schedule.status,
         });
       }
