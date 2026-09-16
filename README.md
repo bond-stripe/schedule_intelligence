@@ -44,9 +44,10 @@ Important constraints:
 ## How search works
 
 1. The user enters an account number, a confirmation number, or both.
-2. The creation-date fields default to one calendar year ago through today. Both dates
-   are included, and users can adjust either date. A February 29 anniversary is clamped
-   to February 28 in the previous year. These filters concern creation time, not the
+2. New searches default to one calendar month ago through today to limit the initial
+   scan. Both dates are included, and users can widen the range by editing either date.
+   Month ends are clamped to the previous month's last day (for example, March 31 uses
+   February 28, or February 29 in a leap year). These filters concern creation time, not the
    schedule's start or end date.
 3. Stripe returns schedules in pages of 100. The app filters each page as it arrives,
    displays matches progressively, and retains at most 100 compact result rows.
@@ -86,12 +87,14 @@ Completed searches and searches stopped at the result limit are cached locally f
 navigation between supported Dashboard views. Partial scans are not cached as complete
 results; they can be continued while the view remains open. Starting a new search
 clears the previous cache and reloads schedules from Stripe. The reset link clears
-identifiers and restores the default dates.
+identifiers and restores the one-month default dates. Restored searches keep their
+saved date range, including wider ranges.
 
 The v11 cache key and stored body are scoped to the Stripe account and test/live mode.
 Older caches that may have excluded released schedules are not restored.
 Cached data includes the submitted filters, end dates, completion/overflow state, and
-search time. The UI displays that time and offers refresh by searching again. Legacy
+search time. The UI omits the summary heading, repeated criteria, result count, and
+search timestamp; select Search again to refresh. Legacy
 cache entries and malformed data are ignored. Changing account or mode remounts the
 view and invalidates any in-flight work from the previous scope.
 
@@ -108,11 +111,13 @@ create/update parameter; the returned schedule provides the resulting `end_date`
 Using that date avoids extra price calls and reproducing calendar/trial/multi-phase
 calculations. A separate business term cannot be inferred from billing frequency alone.
 
-- Active/not-started schedules show Starts and Ends together. A note states whether
-  the subscription is configured to continue (`release`) or cancel (`cancel`) afterward.
-- Historical schedules show "Scheduled end" separately from their actual canceled,
-  completed, or released timestamp. An early release/cancellation does not rewrite the
-  original planned endpoint in the display.
+- Active/not-started schedules show Starts and Ends together. The routine cancellation
+  explanation is omitted for leases configured to cancel (`cancel`) at the end. A note
+  remains for schedules configured to continue (`release`) or with unknown end behavior.
+- Historical schedules show "Scheduled end" separately from their actual completed or
+  released timestamp. Canceled schedules retain their status badge but omit the actual
+  cancellation date. An early release/cancellation does not rewrite the original planned
+  endpoint in the display.
 - Release does not itself cancel the subscription. The app does not claim that a
   released subscription is still running today or infer a subscription cancellation date.
 
@@ -204,18 +209,18 @@ and test/live schedule links. Actual Dashboard host behavior still needs this sm
 
 ## Local verification of date filters, statuses, and end dates
 
-1. Restart the preview and confirm the two DateFields default to the past year through
+1. Start a new search and confirm the two DateFields default to the past month through
    today, with no released-status checkbox. Try empty and reversed dates; Search must
    stay disabled. Compare a known schedule's creation date against each boundary.
 2. Search for an identifier belonging to a schedule older than 31 days. Narrow the
-   range, keep the form open, and search again. The result summary must reflect the
-   submitted range, not edits made after that search.
+   range and keep the form open. Confirm the "Filters changed" warning appears until
+   Search applies the edited range. Results should not have a separate search summary.
 3. Find an identifier with a released schedule. Verify it appears on the first search
    without any additional option. Confirm its release timestamp and note.
 4. Compare Ends to the last phase in Stripe for single-phase and multi-phase schedules,
    including a trial, monthly intervals, and an early cancellation. The displayed end
    must not be confused with the next invoice or a subscription cancellation date.
-5. Reopen the drawer to check saved criteria, timestamp, and end dates. Switch Stripe
+5. Reopen the drawer to check saved criteria and end dates. Switch Stripe
    accounts and test/live modes; results from the previous scope must not appear.
 
 Unit/integration tests cover date validation, leap years and offset transitions,

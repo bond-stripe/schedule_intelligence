@@ -11,11 +11,7 @@ import {
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 
 import BrandIcon from './brand_icon.svg';
-import {
-  formatSearchTime,
-  getSearchStorageKey,
-  type SearchScope,
-} from './scheduleSearchData';
+import { getSearchStorageKey, type SearchScope } from './scheduleSearchData';
 import ScheduleSearchResults from './ScheduleSearchResults';
 import { useScheduleSearch } from './useScheduleSearch';
 
@@ -35,17 +31,7 @@ const ScheduleSearchView = ({ scope }: { scope: SearchScope }) => {
     startNewSearch,
     runSearchBatch,
   } = useScheduleSearch(scope);
-  const { results, scannedScheduleCount, submitted } = search;
-  const criteriaSummary = submitted
-    ? [
-        submitted.accountNumber && 'Account number ' + submitted.accountNumber,
-        submitted.confirmationNumber &&
-          'Confirmation number ' + submitted.confirmationNumber,
-        'Created ' + submitted.createdAfter + ' through ' + submitted.createdBefore,
-      ]
-        .filter(Boolean)
-        .join(' · ')
-    : '';
+  const { results, scannedScheduleCount } = search;
 
   return (
     <ContextView title="" brandColor="#F6F8FA" brandIcon={BrandIcon}>
@@ -53,7 +39,7 @@ const ScheduleSearchView = ({ scope }: { scope: SearchScope }) => {
         <Box css={{ stack: 'y', rowGap: 'medium' }}>
           <TextField
             label="Account number"
-            placeholder="111056"
+            placeholder="111..."
             type="search"
             value={draft.accountNumber}
             disabled={loading}
@@ -64,7 +50,7 @@ const ScheduleSearchView = ({ scope }: { scope: SearchScope }) => {
           />
           <TextField
             label="Confirmation number"
-            placeholder="SAX"
+            placeholder="SAA..."
             type="search"
             value={draft.confirmationNumber}
             disabled={loading}
@@ -109,20 +95,6 @@ const ScheduleSearchView = ({ scope }: { scope: SearchScope }) => {
           </Box>
         </Box>
 
-        {submitted && (
-          <Box css={{ stack: 'y', rowGap: 'xxsmall' }}>
-            <Box css={{ font: 'bodyEmphasized' }}>Search results</Box>
-            <Box css={{ color: 'secondary', font: 'caption' }}>{criteriaSummary}</Box>
-            <Box css={{ color: 'secondary', font: 'caption' }}>
-              {results.length} result{results.length === 1 ? '' : 's'}
-            </Box>
-            {search.searchedAt !== null && (
-              <Box css={{ color: 'secondary', font: 'caption' }}>
-                Searched {formatSearchTime(search.searchedAt)}. Search again to refresh.
-              </Box>
-            )}
-          </Box>
-        )}
         {criteriaChanged && (
           <Banner
             type="default"

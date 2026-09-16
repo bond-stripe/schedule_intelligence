@@ -1,5 +1,5 @@
 import { render } from '@stripe/ui-extension-sdk/testing';
-import { Box } from '@stripe/ui-extension-sdk/ui';
+import { Badge, Box } from '@stripe/ui-extension-sdk/ui';
 import ScheduleSearchResults from './ScheduleSearchResults';
 import { formatDate, type SearchResult } from './scheduleSearchData';
 
@@ -24,16 +24,41 @@ describe('schedule end presentation', () => {
       'subscription continues after the schedule ends'
     );
   });
-  it('identifies a planned subscription cancellation', () => {
-    const { wrapper } = render(
-      <ScheduleSearchResults
-        mode="test"
-        results={[{ ...result, endBehavior: 'cancel' }]}
-      />
-    );
-    expect(wrapper.find(Box)).toContainText('subscription is scheduled to cancel');
-  });
-  it.each(['canceled', 'completed', 'released'] as const)(
+  it.each(['active', 'not_started'] as const)(
+    'shows %s lease end dates without a cancellation explanation',
+    (status) => {
+      const { wrapper } = render(
+        <ScheduleSearchResults
+          mode="test"
+          results={[{ ...result, status, endBehavior: 'cancel' }]}
+        />
+      );
+      expect(wrapper.find(Box)).toContainText('Starts ' + formatDate(result.startDate));
+      expect(wrapper.find(Box)).toContainText('Ends ' + formatDate(result.endDate));
+      expect(wrapper.find(Box)).not.toContainText('subscription is scheduled to cancel');
+      expect(wrapper.find(Box)).not.toContainText('subscription continues');
+    }
+  );
+  it.each([1750000000, null])(
+    'keeps canceled status and planned dates without the cancellation timestamp (%s)',
+    (endedAt) => {
+      const { wrapper } = render(
+        <ScheduleSearchResults
+          mode="test"
+          results={[{ ...result, status: 'canceled', endBehavior: 'cancel', endedAt }]}
+        />
+      );
+      expect(wrapper.find(Badge)).toContainText('Canceled');
+      expect(wrapper.find(Box)).toContainText('Starts ' + formatDate(result.startDate));
+      expect(wrapper.find(Box)).toContainText(
+        'Scheduled end ' + formatDate(result.endDate)
+      );
+      expect(wrapper.find(Box)).not.toContainText('Canceled ' + formatDate(endedAt));
+      if (endedAt !== null)
+        expect(wrapper.find(Box)).not.toContainText(formatDate(endedAt));
+    }
+  );
+  it.each(['completed', 'released'] as const)(
     'separates the planned end from the actual %s date',
     (status) => {
       const { wrapper } = render(

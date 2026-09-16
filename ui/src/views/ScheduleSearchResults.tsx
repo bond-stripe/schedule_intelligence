@@ -82,7 +82,7 @@ const ScheduleSearchResults = ({
               {formatDate(result.endDate)}
             </Box>
           </Box>
-          {['canceled', 'released', 'completed'].includes(result.status) && (
+          {['released', 'completed'].includes(result.status) && (
             <Box css={{ color: 'secondary', font: 'caption' }}>
               {statusPresentation[result.status].label} {formatDate(result.endedAt)}
             </Box>
@@ -92,13 +92,12 @@ const ScheduleSearchResults = ({
               Release does not cancel the subscription.
             </Box>
           ) : (
-            (result.status === 'active' || result.status === 'not_started') && (
+            (result.status === 'active' || result.status === 'not_started') &&
+            result.endBehavior !== 'cancel' && (
               <Box css={{ color: 'secondary', font: 'caption' }}>
                 {result.endBehavior === 'release'
                   ? 'The subscription continues after the schedule ends.'
-                  : result.endBehavior === 'cancel'
-                    ? 'The subscription is scheduled to cancel when the schedule ends.'
-                    : 'The schedule end is not a confirmed subscription cancellation date.'}
+                  : 'The schedule end is not a confirmed subscription cancellation date.'}
               </Box>
             )
           )}

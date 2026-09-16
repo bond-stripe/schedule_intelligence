@@ -79,7 +79,14 @@ describe('ScheduleSearchView', () => {
 
   it('renders the search criteria without a redundant heading or info tooltip', () => {
     const { wrapper } = render(<ScheduleSearch {...getMockContextProps()} />);
-    expect(wrapper.find(TextField)).toHaveProps({ label: 'Account number' });
+    expect(wrapper.find(TextField, { label: 'Account number' })).toHaveProps({
+      placeholder: '111...',
+      value: '',
+    });
+    expect(wrapper.find(TextField, { label: 'Confirmation number' })).toHaveProps({
+      placeholder: 'SAA...',
+      value: '',
+    });
     expect(wrapper.find(ContextView)).toContainText('Created date');
     expect(wrapper.findAll(DateField).map((field) => field.prop('label'))).toEqual([
       'From',
@@ -90,6 +97,29 @@ describe('ScheduleSearchView', () => {
     expect(wrapper.find(ContextView)).not.toContainText('Subscription schedule search');
     expect(wrapper.find(Tooltip)).toBeNull();
     expect(wrapper.find(Button)).toHaveProps({ disabled: true });
+  });
+
+  it('shows matching schedules without the post-search summary', async () => {
+    const matching = schedule(1);
+    matching.phases[0].metadata = { ConfirmationNumber: 'SAWFVCXZZA' };
+    mockListSchedules.mockResolvedValue(page([matching]));
+    const { wrapper, update } = render(<ScheduleSearch {...getMockContextProps()} />);
+    requireNode(wrapper.find(TextField, { label: 'Confirmation number' })).trigger(
+      'onChange',
+      { target: { value: 'SAWFVCXZZA' } }
+    );
+    requireNode(wrapper.find(Button, { type: 'primary' })).trigger('onPress');
+    await update();
+    expect(wrapper.find(ContextView)).toContainText('Schedule sub_sched_...ed_1');
+    expect(wrapper.find(ContextView)).toContainText('Confirmation SAWFVCXZZA');
+    expect(wrapper.find(ContextView)).not.toContainText('Search results');
+    expect(wrapper.find(ContextView)).not.toContainText('Confirmation number SAWFVCXZZA');
+    expect(wrapper.find(ContextView)).not.toContainText(
+      'Created ' + getDefaultSearchCriteria().createdAfter
+    );
+    expect(wrapper.find(ContextView)).not.toContainText('1 result');
+    expect(wrapper.find(ContextView)).not.toContainText('Searched ');
+    expect(wrapper.find(ContextView)).not.toContainText('Search again to refresh');
   });
 
   it('shows results while later pages are pending and caches only the settled result', async () => {
@@ -105,12 +135,59 @@ describe('ScheduleSearchView', () => {
     expect(setStoredSearch.mock.calls).toEqual([['']]);
     pending.resolve(page([schedule(2)]));
     await update();
-    expect(wrapper.find(ContextView)).toContainText('2 results');
+    expect(wrapper.find(ContextView)).toContainText('Schedule sub_sched_...ed_1');
+    expect(wrapper.find(ContextView)).toContainText('Schedule sub_sched_...ed_2');
     expect(JSON.parse(setStoredSearch.mock.calls[1][0])).toMatchObject({
       scannedScheduleCount: 2,
       status: 'complete',
     });
     expect(wrapper.find(Link, { target: '_blank' })).toHaveProps({ external: true });
+  });
+
+  it('uses the default month for new searches and allows an explicitly wider range', async () => {
+    mockListSchedules.mockResolvedValue(page([schedule(1)]));
+    const defaults = getDefaultSearchCriteria();
+    const { wrapper, update } = render(<ScheduleSearch {...getMockContextProps()} />);
+    expect(wrapper.find(DateField, { label: 'From' })).toHaveProps({
+      value: defaults.createdAfter,
+    });
+    expect(wrapper.find(DateField, { label: 'To' })).toHaveProps({
+      value: defaults.createdBefore,
+    });
+    startSearch(wrapper);
+    await update();
+    const defaultRange = getCreatedRange(
+      defaults.createdAfter,
+      defaults.createdBefore
+    ).range;
+    expect(mockListSchedules.mock.calls[0][0].created).toEqual(defaultRange);
+
+    requireNode(wrapper.find(DateField, { label: 'From' })).trigger(
+      'onChange',
+      '2025-01-01'
+    );
+    requireNode(wrapper.find(DateField, { label: 'To' })).trigger(
+      'onChange',
+      '2026-01-01'
+    );
+    requireNode(wrapper.find(Button, { type: 'primary' })).trigger('onPress');
+    await update();
+    expect(mockListSchedules.mock.calls[1][0].created).toEqual(
+      getCreatedRange('2025-01-01', '2026-01-01').range
+    );
+
+    requireNode(
+      wrapper.findAll(Link).find((link) => link.text === 'Start a new search')
+    ).trigger('onPress');
+    expect(wrapper.find(DateField, { label: 'From' })).toHaveProps({
+      value: defaults.createdAfter,
+    });
+    expect(wrapper.find(DateField, { label: 'To' })).toHaveProps({
+      value: defaults.createdBefore,
+    });
+    startSearch(wrapper);
+    await update();
+    expect(mockListSchedules.mock.calls[2][0].created).toEqual(defaultRange);
   });
 
   it('reports overflow and makes no request after match 101', async () => {
@@ -172,7 +249,8 @@ describe('ScheduleSearchView', () => {
         .find((button) => button.text === 'Retry remaining schedules')
     ).trigger('onPress');
     await update();
-    expect(wrapper.find(ContextView)).toContainText('2 results');
+    expect(wrapper.find(ContextView)).toContainText('Schedule sub_sched_...ed_1');
+    expect(wrapper.find(ContextView)).toContainText('Schedule sub_sched_...ed_2');
     expect(mockListSchedules.mock.calls[2][0]).toEqual(
       mockListSchedules.mock.calls[1][0]
     );
@@ -291,7 +369,7 @@ describe('ScheduleSearchView', () => {
     expect(cached.criteria).not.toHaveProperty('includeReleased');
   });
 
-  it('keeps results labeled with submitted criteria while refining and fetches fresh matches', async () => {
+  it('warns when criteria change while retaining previous matches until a fresh search', async () => {
     mockListSchedules
       .mockResolvedValueOnce({ data: [schedule(1)], has_more: false })
       .mockResolvedValueOnce({ data: [schedule(2, '222')], has_more: false });
@@ -303,12 +381,15 @@ describe('ScheduleSearchView', () => {
       { target: { value: '222' } }
     );
     expect(wrapper.find(Banner, { title: 'Filters changed' })).not.toBeNull();
-    expect(wrapper.find(ContextView)).toContainText('Account number 111');
+    expect(wrapper.find(ContextView)).toContainText('Account 111');
+    expect(wrapper.find(TextField, { label: 'Account number' })).toHaveProps({
+      value: '222',
+    });
     expect(wrapper.find(ContextView)).toContainText('Schedule sub_sched_...ed_1');
     requireNode(wrapper.find(Button, { type: 'primary' })).trigger('onPress');
     await update();
     expect(mockListSchedules).toHaveBeenCalledTimes(2);
-    expect(wrapper.find(ContextView)).toContainText('Account number 222');
+    expect(wrapper.find(ContextView)).toContainText('Account 222');
     expect(wrapper.find(ContextView)).toContainText('Schedule sub_sched_...ed_2');
     expect(wrapper.find(Banner, { title: 'Filters changed' })).toBeNull();
   });
@@ -356,7 +437,7 @@ describe('ScheduleSearchView', () => {
     }
   );
 
-  it('restores a settled overflow with criteria and its search time', () => {
+  it('restores a settled overflow and criteria without a summary or refresh message', () => {
     mockUseStorage.mockReturnValue([
       JSON.stringify({
         scope: { accountId: 'acct_1234', mode: 'test' },
@@ -384,7 +465,9 @@ describe('ScheduleSearchView', () => {
     expect(wrapper.find(DateField, { label: 'From' })).toHaveProps({
       value: getDefaultSearchCriteria().createdAfter,
     });
-    expect(wrapper.find(ContextView)).toContainText('Search again to refresh');
+    expect(wrapper.find(ContextView)).not.toContainText('Search results');
+    expect(wrapper.find(ContextView)).not.toContainText('Searched ');
+    expect(wrapper.find(ContextView)).not.toContainText('Search again to refresh');
     expect(mockListSchedules).not.toHaveBeenCalled();
   });
 });

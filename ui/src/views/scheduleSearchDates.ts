@@ -25,8 +25,9 @@ export const calendarDateValue = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
 export const getDefaultSearchCriteria = (now = new Date()): SearchCriteria => {
-  const year = now.getFullYear() - 1;
-  const month = now.getMonth();
+  const year = now.getFullYear();
+  const month = now.getMonth() - 1;
+  // Clamp month ends instead of letting dates such as March 31 roll into March.
   const lastDay = new Date(year, month + 1, 0).getDate();
   return {
     accountNumber: '',

@@ -5,19 +5,29 @@ import {
 } from './scheduleSearchDates';
 
 describe('search creation dates', () => {
-  it('defaults to one calendar year through today', () => {
+  it('defaults to one calendar month through today', () => {
     expect(getDefaultSearchCriteria(new Date(2026, 8, 16, 12))).toEqual({
       accountNumber: '',
       confirmationNumber: '',
-      createdAfter: '2025-09-16',
+      createdAfter: '2026-08-16',
       createdBefore: '2026-09-16',
     });
   });
-  it('clamps a leap-day anniversary to the last day of February', () => {
-    expect(getDefaultSearchCriteria(new Date(2024, 1, 29)).createdAfter).toBe(
-      '2023-02-28'
-    );
-  });
+  it.each([
+    [2026, 2, 31, '2026-02-28'],
+    [2024, 2, 31, '2024-02-29'],
+    [2026, 4, 31, '2026-04-30'],
+    [2026, 0, 31, '2025-12-31'],
+    [2024, 1, 29, '2024-01-29'],
+    [2026, 2, 1, '2026-02-01'],
+  ])(
+    'handles month ends and year boundaries (%i/%i/%i)',
+    (year, month, day, expected) => {
+      expect(getDefaultSearchCriteria(new Date(year, month, day)).createdAfter).toBe(
+        expected
+      );
+    }
+  );
   it.each([
     '',
     '2026-02-30',

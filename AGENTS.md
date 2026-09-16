@@ -17,7 +17,7 @@ Apps constraints" below before adding dependencies, network calls, or DOM/browse
 Support agents need to find schedules by first-phase `AccountNumber` and/or
 `ConfirmationNumber` metadata. Stripe has no schedule metadata search endpoint.
 The app lists schedules in a user-selected creation-date range (default: one calendar
-year ago through today), then filters first-phase metadata locally with case-insensitive
+month ago through today), then filters first-phase metadata locally with case-insensitive
 prefix matching (AND when both fields are set). All statuses, including released
 schedules, are always eligible; there is no status filter.
 
@@ -36,8 +36,9 @@ The form stays visible and keeps edited criteria separate from submitted results
 
 Schedule Ends comes from the **final** phase's `end_date`, already calculated by Stripe.
 Do not infer a total subscription term from price billing frequency or fetch prices for
-this display. Keep historical canceled/completed/released timestamps separate from the
-planned end, and explain that releasing a schedule does not cancel its subscription.
+this display. Omit actual cancellation timestamps from results, keeping the Canceled
+badge and planned end. Keep completed/released timestamps separate from the planned
+end, and explain that releasing a schedule does not cancel its subscription.
 
 ## Repository layout
 

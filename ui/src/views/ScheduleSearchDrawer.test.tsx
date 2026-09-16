@@ -144,7 +144,8 @@ describe('ScheduleSearchDrawerView', () => {
         <ScheduleSearchDrawer {...drawerContext(mode)} />
       );
       await update();
-      expect(wrapper.find(ContextView)).toContainText('Search results');
+      expect(wrapper.find(ContextView)).not.toContainText('Search results');
+      expect(wrapper.find(ContextView)).not.toContainText('Search again to refresh');
       expect(wrapper.find(ContextView)).toContainText('customer@example.com');
       expect(wrapper.find(Link, { target: '_blank' })).toHaveProps({
         external: true,

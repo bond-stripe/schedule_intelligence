@@ -48,14 +48,6 @@ export const formatDate = (timestamp: number | null) =>
         day: 'numeric',
         year: 'numeric',
       });
-export const formatSearchTime = (timestamp: number) =>
-  new Date(timestamp * 1000).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
 
 /** Absolute links prevent the app host from treating navigation as another drawer. */
 export const getDashboardUrl = (
