@@ -56,5 +56,5 @@
     "test": "tsx tools/test.mts",
     "test:watch": "vitest watch"
   },
-  "version": "0.0.1"
+  "version": "0.0.2"
 }
