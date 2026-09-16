@@ -14,24 +14,22 @@ Apps constraints" below before adding dependencies, network calls, or DOM/browse
 
 ## The problem this app solves
 
-Support agents cannot reliably find **future-dated subscription schedules** by searching
-metadata (e.g. an `account_id`). In Stripe:
+Support agents need to find schedules by first-phase `AccountNumber` and/or
+`ConfirmationNumber` metadata. Stripe has no schedule metadata search endpoint.
+The app lists schedules created in the last 31 days and filters their first-phase
+metadata locally with case-insensitive prefix matching (AND when both fields are set).
+All schedule statuses, including released, are currently included.
 
-- Subscription **schedules cannot be searched by metadata**, and future-dated schedules
-  that have not yet executed are especially hard to locate.
-- **Customers _can_ be searched by metadata** via the Customer Search API.
+The page-by-page scanner lives in `ui/src/views/scheduleSearchEngine.ts`;
+`ScheduleSearch.tsx` manages its UI lifecycle. It retains up to 100 compact rows and
+stops at the 101st match. Searches pause after 20 pages and can be continued; failures
+retain partial matches and can retry the failed page. Never present an incomplete
+zero-match scan as a completed search.
 
-So the app pivots through the customer:
-
-1. Search Customers where `metadata['account_id']` equals the entered value
-   (`stripe.customers.search`).
-2. For each matched customer, list their subscription schedules
-   (`stripe.subscriptionSchedules.list`), including future-dated ones.
-3. Render the schedules (id, start date, linked customer) in a table.
-
-The core logic lives in `ui/src/views/ScheduleSearch.tsx`. Keep this workaround in mind:
-**do not "fix" it by trying to search schedules by metadata directly — that capability
-does not exist.**
+The earlier customer `account_id` lookup is no longer the current metadata contract.
+Do not replace the phase-metadata workflow with it or invent a schedule metadata
+search endpoint. The one-year default, date/status controls, and end-date display are
+planned as later increments; this first refactor deliberately retains the old window.
 
 ## Repository layout
 
@@ -41,11 +39,14 @@ pnpm workspace (`pnpm-workspace.yaml`). Packages: `ui`, `custom-objects`, `exten
   `stripe_api_access` permissions, and `ui_extension.views` (viewport → component).
   **Edit this via the Stripe CLI, not by hand, where possible** (see commands below).
 - `ui/` — the UI extension (the only substantive package today).
-  - `src/views/` — one file per view component. The three views registered in the manifest
-    (`ScheduleSearch`, `ScheduleSearchCustomerDetail`, `ScheduleSearchSubscriptionDetail`)
-    **all render the same `ScheduleSearch` component** across different Dashboard viewports;
-    the latter two are thin wrappers. (The `drawer.default` viewport was intentionally removed
-    — hosting the app in the Dashboard drawer caused a re-render crash.)
+  - `src/views/` — one file per view component. The four views registered in the manifest
+    (`ScheduleSearch`, `ScheduleSearchCustomerDetail`, `ScheduleSearchSubscriptionDetail`,
+    `ScheduleSearchDrawer`) **all render the same `ScheduleSearch` component**; the latter
+    three are thin wrappers. `drawer.default` provides Dashboard-wide availability,
+    including subscription schedule list/detail pages, and has no `objectContext`.
+    Page-specific views take precedence. A former drawer implementation had a re-render
+    crash: keep this wrapper free of separate storage hydration effects and object-based
+    previous/next navigation. Cover storage writes and restoration in regression tests.
   - `Home.tsx`, `Customers.tsx`, `CustomerDetails.tsx` (+ their tests) are **leftover
     CLI scaffolding and are NOT wired into `stripe-app.yaml`**. Don't assume they're live;
     prefer deleting or ignoring them over building on them.
@@ -53,7 +54,7 @@ pnpm workspace (`pnpm-workspace.yaml`). Packages: `ui`, `custom-objects`, `exten
 - `custom-objects/` — scaffold for Stripe custom objects (no `src/` yet; builds/tests are no-ops). Uses **vitest**.
 - `extensions/*` — script extensions (none present yet). Uses **vitest**.
 - `tools/test.mts` — orchestrates the split test runners (vitest for extensions/custom-objects,
-  jest for `ui/`). UI test failures are treated as non-fatal here.
+  jest for `ui/`). Failures from either runner fail the command.
 
 ## Commands
 
@@ -114,7 +115,7 @@ report the actual output.** Do not assert success without running the commands.
 - **React is v17** (`@types/react` pinned to `^17`). Don't use React 18+ APIs.
 - **Object context**: viewport components receive `environment` (mode, `objectContext`) and
   `userContext` via `ExtensionContextValue`. Use `environment.mode` to build `/test`-prefixed
-  Dashboard links (see `getDashboardPath`).
+  Dashboard links (see `getDashboardUrl`).
 
 ## Conventions
 
@@ -123,12 +124,12 @@ report the actual output.** Do not assert success without running the commands.
   thin-wrapper pattern (`ScheduleSearchCustomerDetail.tsx` etc.).
 - **UI tests** (Jest): render with `getMockContextProps()`, then assert on toolkit components
   via the wrapper (`wrapper.find(TextField)`, `.toContainText(...)`, `.toHaveProps(...)`).
-- **Pagination/limits**: the search intentionally bounds work with page caps and a max result
-  count (`MAX_CUSTOMER_PAGES`, `MAX_SCHEDULE_PAGES_PER_CUSTOMER`, `MAX_RESULTS`) and surfaces a
-  "stopped early" state. Preserve these guards — unbounded scans over customers/schedules are
-  expensive and can hit rate limits.
-- **Search query values must be escaped** before interpolation into a Stripe search query
-  (see `escapeSearchQueryValue`).
+- **Pagination/limits**: preserve `MAX_PAGES_PER_BATCH` and `MAX_RESULTS`. Keep overflow,
+  pause, cancellation, failure, and completion distinct. Resuming uses the existing
+  search's criteria, creation cutoff, matches, and cursor. Only settled scans (complete
+  or overflow) are cached; starting a new scan clears the prior result cache.
+- **Search terms**: normalize prefixes once per scan, and match only the first phase's
+  exact metadata keys. There is no Stripe Search query interpolation in this workflow.
 - **Formatting/linting**: Prettier + ESLint are enforced (husky + lint-staged on commit).
   The root ESLint flat config ignores `ui/`, `custom-objects/`, and `extensions/**`; those
   packages carry their own lint config (`ui/` uses `@stripe/ui-extension-tools`). Run lint
@@ -142,4 +143,4 @@ report the actual output.** Do not assert success without running the commands.
 - **Do** run `pnpm check` before finishing and report real results.
 - **Don't** add raw `fetch` to external hosts without a `connect-src` grant.
 - **Don't** introduce React 18+ features, raw DOM, or non-toolkit UI.
-- **Don't** attempt to search subscription schedules by metadata directly — search customers, then list their schedules.
+- **Don't** invent schedule metadata search endpoints — list schedules and filter phase metadata locally.

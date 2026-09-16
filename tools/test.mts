@@ -30,11 +30,7 @@ if (hasExtensions || hasCustomObjects) {
 }
 
 if (hasUI) {
-  try {
-    execSync('pnpm --filter "./ui" test', { stdio: 'inherit' });
-  } catch {
-    // UI test failures are non-fatal
-  }
+  run('pnpm --filter "./ui" test');
 }
 
 process.exit(exitCode);

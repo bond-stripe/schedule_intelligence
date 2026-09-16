@@ -15,13 +15,20 @@
   "eslintConfig": {
     "extends": [
       "./node_modules/@stripe/ui-extension-tools/eslintrc.ui-extension.js"
-    ]
+    ],
+    "settings": {
+      "react": {
+        "version": "17.0"
+      }
+    }
   },
   "license": "~~proprietary~~",
   "name": "gmf-app-ui",
   "private": true,
   "scripts": {
-    "lint": "eslint --ext ts,tsx src",
+    "lint": "pnpm lint:types && pnpm lint:eslint",
+    "lint:eslint": "eslint --ext ts,tsx src",
+    "lint:types": "tsc --noEmit",
     "test": "jest"
   },
   "version": "0.0.1"

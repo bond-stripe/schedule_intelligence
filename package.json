@@ -46,7 +46,7 @@
     "fix:lint": "eslint --fix . --ignore-pattern 'extensions/**' && pnpm -r --filter './extensions/*' --if-present fix:lint",
     "image": "rm -rf .build && create-upload-image .build",
     "lint": "pnpm lint:types && pnpm lint:eslint && pnpm lint:format",
-    "lint:eslint": "eslint . --ignore-pattern 'extensions/**' && pnpm -r --filter './extensions/*' --if-present lint:eslint && pnpm -r --filter './custom-objects' --if-present lint:eslint",
+    "lint:eslint": "eslint . --ignore-pattern 'extensions/**' && pnpm -r --if-present lint:eslint",
     "lint:format": "prettier --check .",
     "lint:types": "pnpm -r --if-present lint:types",
     "postimage": "cp pnpm-lock.yaml .build/",

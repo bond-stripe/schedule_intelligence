@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Stripe from 'stripe';
 
 import {
@@ -21,51 +21,30 @@ import {
   parseCachedSearch,
   SEARCH_STORAGE_KEY,
   type CachedSearch,
-  type SearchResult,
 } from './scheduleSearchData';
 import ScheduleSearchResults from './ScheduleSearchResults';
-
-const PAGE_SIZE = 100;
-const MAX_RESULTS = 100;
-const SEARCH_WINDOW_SECONDS = 31 * 24 * 60 * 60;
-const ACCOUNT_NUMBER_METADATA_KEY = 'AccountNumber';
-const CONFIRMATION_NUMBER_METADATA_KEY = 'ConfirmationNumber';
+import {
+  createScheduleSearch,
+  getScheduleCreatedCutoff,
+  type ScanOutcome,
+  type SearchProgress,
+} from './scheduleSearchEngine';
 
 const stripe = new Stripe(STRIPE_API_KEY, {
   apiVersion: '2023-08-16',
   httpClient: createHttpClient(),
 });
 
-const getResourceId = <T extends { id: string }>(resource: string | T | null) =>
-  typeof resource === 'string' ? resource : (resource?.id ?? '');
+type SearchState = SearchProgress & {
+  status: 'idle' | 'loading' | ScanOutcome['status'];
+  error?: string;
+};
 
-const getCustomerEmail = (customer: unknown) =>
-  typeof customer === 'object' &&
-  customer !== null &&
-  'email' in customer &&
-  typeof customer.email === 'string'
-    ? customer.email
-    : null;
-
-const getScheduleStartDate = (schedule: Stripe.SubscriptionSchedule) =>
-  schedule.phases[0]?.start_date ??
-  schedule.current_phase?.start_date ??
-  schedule.created;
-
-export const matchesPrefix = (value: string, searchTerm: string) =>
-  value.toLowerCase().startsWith(searchTerm.trim().toLowerCase());
-
-export const getScheduleCreatedCutoff = (nowMilliseconds = Date.now()) =>
-  Math.floor(nowMilliseconds / 1000) - SEARCH_WINDOW_SECONDS;
-
-export const getFirstPhaseSearchMetadata = (
-  schedule: Pick<Stripe.SubscriptionSchedule, 'phases'>
-) => ({
-  accountNumber:
-    schedule.phases[0]?.metadata?.[ACCOUNT_NUMBER_METADATA_KEY] ?? '',
-  confirmationNumber:
-    schedule.phases[0]?.metadata?.[CONFIRMATION_NUMBER_METADATA_KEY] ?? '',
-});
+const emptySearch: SearchState = {
+  results: [],
+  scannedScheduleCount: 0,
+  status: 'idle',
+};
 
 const ScheduleSearch = ({ environment }: ExtensionContextValue) => {
   const [storedSearch, setStoredSearch] = useStorage(SEARCH_STORAGE_KEY);
@@ -74,113 +53,100 @@ const ScheduleSearch = ({ environment }: ExtensionContextValue) => {
   const [confirmationNumber, setConfirmationNumber] = useState(
     cachedSearch?.confirmationNumber ?? ''
   );
-  const [results, setResults] = useState<SearchResult[]>(cachedSearch?.results ?? []);
-  const [loading, setLoading] = useState(false);
-  const [searched, setSearched] = useState(cachedSearch?.searched ?? false);
-  const [error, setError] = useState<string | null>(null);
-  const [scannedScheduleCount, setScannedScheduleCount] = useState(
-    cachedSearch?.scannedScheduleCount ?? 0
+  const [search, setSearch] = useState<SearchState>(() =>
+    cachedSearch?.searched
+      ? {
+          results: cachedSearch.results,
+          scannedScheduleCount: cachedSearch.scannedScheduleCount,
+          status: cachedSearch.stoppedEarly ? 'limit_reached' : 'complete',
+        }
+      : emptySearch
   );
-  const [stoppedEarly, setStoppedEarly] = useState(
-    cachedSearch?.stoppedEarly ?? false
+  const session = useRef<{
+    scanner: ReturnType<typeof createScheduleSearch>;
+    accountNumber: string;
+    confirmationNumber: string;
+  } | null>(null);
+  const currentRun = useRef(0);
+  const running = useRef(false);
+
+  useEffect(
+    () => () => {
+      currentRun.current += 1;
+    },
+    []
   );
+
+  const { results, scannedScheduleCount } = search;
+  const loading = search.status === 'loading';
+  const canResume = ['paused', 'canceled', 'error'].includes(search.status);
 
   const trimmedAccountNumber = accountNumber.trim();
   const trimmedConfirmationNumber = confirmationNumber.trim();
   const hasAccountNumber = trimmedAccountNumber.length > 0;
   const hasConfirmationNumber = trimmedConfirmationNumber.length > 0;
-  const canSearch = !loading && (hasAccountNumber || hasConfirmationNumber);
+  const canSearch = !loading && !canResume && (hasAccountNumber || hasConfirmationNumber);
 
-  const searchSchedules = async () => {
-    if (!canSearch) return;
+  const runSearchBatch = async () => {
+    const activeSession = session.current;
+    if (!activeSession || running.current) return;
+    running.current = true;
+    const runId = ++currentRun.current;
+    setSearch((previous) => ({ ...previous, status: 'loading', error: undefined }));
+    const outcome = await activeSession.scanner.runBatch({
+      isCanceled: () => currentRun.current !== runId,
+      onProgress: (progress) => {
+        if (currentRun.current === runId) setSearch({ ...progress, status: 'loading' });
+      },
+    });
+    if (currentRun.current !== runId) return;
+    running.current = false;
+    setSearch(outcome);
 
-    setLoading(true);
-    setSearched(true);
-    setError(null);
-    setResults([]);
-    setScannedScheduleCount(0);
-    setStoppedEarly(false);
-
-    try {
-      const allSchedules: Stripe.SubscriptionSchedule[] = [];
-      const createdCutoff = getScheduleCreatedCutoff();
-      let startingAfter: string | undefined;
-
-      do {
-        const page = await stripe.subscriptionSchedules.list({
-          created: { gte: createdCutoff },
-          expand: ['data.customer'],
-          limit: PAGE_SIZE,
-          ...(startingAfter ? { starting_after: startingAfter } : {}),
-        });
-
-        allSchedules.push(...page.data);
-        startingAfter = page.has_more ? page.data.at(-1)?.id : undefined;
-
-        if (page.has_more && !startingAfter) {
-          throw new Error('Unable to continue loading subscription schedules.');
-        }
-      } while (startingAfter);
-
-      const allMatches = allSchedules.filter((schedule) => {
-        const metadata = getFirstPhaseSearchMetadata(schedule);
-        const accountNumberMatches =
-          !hasAccountNumber ||
-          matchesPrefix(metadata.accountNumber, trimmedAccountNumber);
-        const confirmationNumberMatches =
-          !hasConfirmationNumber ||
-          matchesPrefix(metadata.confirmationNumber, trimmedConfirmationNumber);
-
-        return accountNumberMatches && confirmationNumberMatches;
-      });
-
-      const matches = allMatches.slice(0, MAX_RESULTS).map((schedule) => {
-        const metadata = getFirstPhaseSearchMetadata(schedule);
-
-        return {
-          scheduleId: schedule.id,
-          customerId: getResourceId(schedule.customer),
-          customerEmail: getCustomerEmail(schedule.customer),
-          accountNumber: metadata.accountNumber,
-          confirmationNumber: metadata.confirmationNumber,
-          startDate: getScheduleStartDate(schedule),
-          status: schedule.status,
-        };
-      });
-      const reachedResultLimit = allMatches.length > MAX_RESULTS;
-
-      setResults(matches);
-      setScannedScheduleCount(allSchedules.length);
-      setStoppedEarly(reachedResultLimit);
-
+    // Only settled searches are cached; partial scans must not look complete on remount.
+    if (outcome.status === 'complete' || outcome.status === 'limit_reached') {
       const cachedSearchToStore: CachedSearch = {
-        accountNumber: trimmedAccountNumber,
-        confirmationNumber: trimmedConfirmationNumber,
-        scannedScheduleCount: allSchedules.length,
-        results: matches,
+        accountNumber: activeSession.accountNumber,
+        confirmationNumber: activeSession.confirmationNumber,
+        scannedScheduleCount: outcome.scannedScheduleCount,
+        results: outcome.results,
         searched: true,
-        stoppedEarly: reachedResultLimit,
+        stoppedEarly: outcome.status === 'limit_reached',
       };
       setStoredSearch(JSON.stringify(cachedSearchToStore));
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Unable to search subscription schedules.'
-      );
-    } finally {
-      setLoading(false);
     }
   };
 
+  const searchSchedules = () => {
+    if (!canSearch || running.current) return;
+    session.current = {
+      scanner: createScheduleSearch({
+        listSchedules: (params) => stripe.subscriptionSchedules.list(params),
+        accountNumber: trimmedAccountNumber,
+        confirmationNumber: trimmedConfirmationNumber,
+        createdAfter: getScheduleCreatedCutoff(),
+      }),
+      accountNumber: trimmedAccountNumber,
+      confirmationNumber: trimmedConfirmationNumber,
+    };
+    setStoredSearch('');
+    setSearch(emptySearch);
+    void runSearchBatch();
+  };
+
+  const cancelSearch = () => {
+    currentRun.current += 1;
+    running.current = false;
+    setSearch((previous) => ({ ...previous, status: 'canceled' }));
+  };
+
   const startNewSearch = () => {
+    currentRun.current += 1;
+    running.current = false;
+    session.current = null;
     setAccountNumber('');
     setConfirmationNumber('');
-    setResults([]);
-    setSearched(false);
-    setError(null);
-    setScannedScheduleCount(0);
-    setStoppedEarly(false);
+    setSearch(emptySearch);
     setStoredSearch('');
   };
 
@@ -206,6 +172,7 @@ const ScheduleSearch = ({ environment }: ExtensionContextValue) => {
               placeholder="111056"
               type="search"
               value={accountNumber}
+              disabled={loading || canResume}
               onChange={(event) => setAccountNumber(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') void searchSchedules();
@@ -216,6 +183,7 @@ const ScheduleSearch = ({ environment }: ExtensionContextValue) => {
               placeholder="SAX"
               type="search"
               value={confirmationNumber}
+              disabled={loading || canResume}
               onChange={(event) => setConfirmationNumber(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') void searchSchedules();
@@ -245,13 +213,37 @@ const ScheduleSearch = ({ environment }: ExtensionContextValue) => {
         {loading && (
           <Box css={{ stack: 'x', columnGap: 'small', alignY: 'center' }}>
             <Spinner size="small" />
-            <Box>Loading and searching the last 31 days of schedules...</Box>
+            <Box>Searching schedules. Checked {scannedScheduleCount} so far.</Box>
+            <Button onPress={cancelSearch}>Cancel</Button>
           </Box>
         )}
 
-        {error && <Banner type="critical" title="Search failed" description={error} />}
+        {search.status === 'error' && (
+          <Banner type="critical" title="Search incomplete" description={search.error} />
+        )}
 
-        {searched && !loading && !error && results.length === 0 && (
+        {(search.status === 'paused' || search.status === 'canceled') && (
+          <Banner
+            type="caution"
+            title={search.status === 'paused' ? 'Search paused' : 'Search canceled'}
+            description={`Checked ${scannedScheduleCount} schedules. Search results are incomplete.`}
+          />
+        )}
+
+        {canResume && (
+          <Box css={{ stack: 'x', columnGap: 'small' }}>
+            <Button onPress={() => void runSearchBatch()}>
+              {search.status === 'error'
+                ? 'Retry remaining schedules'
+                : 'Continue searching'}
+            </Button>
+            {results.length === 0 && (
+              <Link onPress={startNewSearch}>Start a new search</Link>
+            )}
+          </Box>
+        )}
+
+        {search.status === 'complete' && results.length === 0 && (
           <Banner
             type="caution"
             title="No matching schedules"
@@ -261,11 +253,11 @@ const ScheduleSearch = ({ environment }: ExtensionContextValue) => {
           />
         )}
 
-        {stoppedEarly && results.length > 0 && (
+        {search.status === 'limit_reached' && (
           <Banner
             type="caution"
-            title="Showing the first 100 matches"
-            description={`All ${scannedScheduleCount} subscription schedules were searched.`}
+            title="More than 100 matches"
+            description="Showing the first 100. Refine your search to find the schedule you need."
           />
         )}
 
