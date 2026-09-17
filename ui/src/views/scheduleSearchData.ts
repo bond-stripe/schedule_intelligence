@@ -1,9 +1,9 @@
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 import { getCreatedRange, type SearchCriteria } from './scheduleSearchDates';
 
-// Invalidate older searches that may have excluded released schedules.
-export const SEARCH_STORAGE_KEY = 'scheduled-subscription-search:last-search:v11';
-export const MAX_RESULTS = 100;
+// Increment when cached result semantics or validation rules change.
+export const SEARCH_STORAGE_KEY = 'scheduled-subscription-search:last-search:v12';
+export const MAX_RESULTS = 50;
 export type SearchScope = {
   accountId: string;
   mode: ExtensionContextValue['environment']['mode'];

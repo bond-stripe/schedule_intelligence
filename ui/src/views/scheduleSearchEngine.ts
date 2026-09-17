@@ -4,7 +4,8 @@ import { isTimestamp, MAX_RESULTS, type SearchResult } from './scheduleSearchDat
 import type { CreatedRange } from './scheduleSearchDates';
 
 export const PAGE_SIZE = 100;
-export const MAX_PAGES_PER_BATCH = 20;
+export const MAX_PAGES_PER_BATCH = 50;
+export const CUSTOMER_LOOKUP_CONCURRENCY = 5;
 
 // Only the fields the scanner reads; a Stripe schedule is assignable to this type.
 export type SearchableSchedule = Pick<
@@ -32,6 +33,48 @@ export type ListSchedulePage = (
 export type SearchProgress = {
   results: SearchResult[];
   scannedScheduleCount: number;
+};
+
+export type RetrieveCustomer = (
+  customerId: string
+) => Promise<{ email?: string | null; deleted?: boolean | void }>;
+
+/** Enrich only the final retained rows, without failing a search on a customer lookup. */
+export const enrichCustomerEmails = async (
+  results: SearchResult[],
+  retrieveCustomer: RetrieveCustomer,
+  isCanceled: () => boolean = () => false
+) => {
+  const customerIds = Array.from(new Set(results.map((result) => result.customerId)));
+  const emails = new Map<string, string | null>();
+  let nextIndex = 0;
+  const worker = async () => {
+    while (!isCanceled()) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= customerIds.length) return;
+      const customerId = customerIds[index];
+      try {
+        const customer = await retrieveCustomer(customerId);
+        if (!isCanceled() && customer.deleted !== true) {
+          emails.set(customerId, customer.email ?? null);
+        }
+      } catch {
+        // Keep the customer ID as the display fallback when enrichment fails.
+      }
+    }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(CUSTOMER_LOOKUP_CONCURRENCY, customerIds.length) },
+      worker
+    )
+  );
+  return results.map((result) =>
+    emails.has(result.customerId)
+      ? { ...result, customerEmail: emails.get(result.customerId) ?? null }
+      : result
+  );
 };
 
 export type ScanOutcome = SearchProgress &
@@ -131,7 +174,6 @@ export const createScheduleSearch = ({
       try {
         page = await listSchedules({
           created: { ...createdRange },
-          expand: ['data.customer'],
           limit: PAGE_SIZE,
           ...(startingAfter ? { starting_after: startingAfter } : {}),
         });
@@ -164,7 +206,7 @@ export const createScheduleSearch = ({
           continue;
         }
 
-        // A 101st matching schedule proves overflow; do not retain or enrich it.
+        // A 51st matching schedule proves overflow; do not retain it.
         if (results.length === MAX_RESULTS) {
           terminalStatus = 'limit_reached';
           return { ...snapshot(), status: terminalStatus };
@@ -174,8 +216,7 @@ export const createScheduleSearch = ({
         results.push({
           scheduleId: schedule.id,
           customerId: typeof customer === 'string' ? customer : customer.id,
-          customerEmail:
-            typeof customer !== 'string' && 'email' in customer ? customer.email : null,
+          customerEmail: null,
           ...metadata,
           ...getScheduleDates(schedule),
           status: schedule.status,

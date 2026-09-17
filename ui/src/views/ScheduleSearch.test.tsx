@@ -13,18 +13,27 @@ import {
 import { useStorage } from '@stripe/ui-extension-sdk/data';
 
 import ScheduleSearch from './ScheduleSearch';
+import { GM_FINANCIAL_BLUE } from './branding';
 import { getSearchStorageKey } from './scheduleSearchData';
 import { getDefaultSearchCriteria, getCreatedRange } from './scheduleSearchDates';
+import { MAX_PAGES_PER_BATCH } from './scheduleSearchEngine';
 import type { ListSchedulePage, SearchableSchedule } from './scheduleSearchEngine';
 
 const mockListSchedules = jest.fn<
   ReturnType<ListSchedulePage>,
   Parameters<ListSchedulePage>
 >();
+const mockRetrieveCustomer = jest.fn<
+  Promise<{ id: string; email: string | null }>,
+  [string]
+>();
 jest.mock('stripe', () => ({
   default: jest.fn().mockImplementation(() => ({
     subscriptionSchedules: {
       list: (params: Parameters<ListSchedulePage>[0]) => mockListSchedules(params),
+    },
+    customers: {
+      retrieve: (customerId: string) => mockRetrieveCustomer(customerId),
     },
   })),
 }));
@@ -72,6 +81,8 @@ const startSearch = (wrapper: ReturnType<typeof render>['wrapper']) => {
 describe('ScheduleSearchView', () => {
   beforeEach(() => {
     mockListSchedules.mockReset();
+    mockRetrieveCustomer.mockReset();
+    mockRetrieveCustomer.mockResolvedValue({ id: 'cus_123', email: null });
     setStoredSearch.mockReset();
     mockUseStorage.mockReset();
     mockUseStorage.mockReturnValue([null, setStoredSearch]);
@@ -79,6 +90,7 @@ describe('ScheduleSearchView', () => {
 
   it('renders the search criteria without a redundant heading or info tooltip', () => {
     const { wrapper } = render(<ScheduleSearch {...getMockContextProps()} />);
+    expect(wrapper.find(ContextView)).toHaveProps({ brandColor: GM_FINANCIAL_BLUE });
     expect(wrapper.find(TextField, { label: 'Account number' })).toHaveProps({
       placeholder: '111...',
       value: '',
@@ -103,6 +115,10 @@ describe('ScheduleSearchView', () => {
     const matching = schedule(1);
     matching.phases[0].metadata = { ConfirmationNumber: 'SAWFVCXZZA' };
     mockListSchedules.mockResolvedValue(page([matching]));
+    mockRetrieveCustomer.mockResolvedValue({
+      id: 'cus_123',
+      email: 'customer@example.com',
+    });
     const { wrapper, update } = render(<ScheduleSearch {...getMockContextProps()} />);
     requireNode(wrapper.find(TextField, { label: 'Confirmation number' })).trigger(
       'onChange',
@@ -110,6 +126,9 @@ describe('ScheduleSearchView', () => {
     );
     requireNode(wrapper.find(Button, { type: 'primary' })).trigger('onPress');
     await update();
+    expect(mockListSchedules.mock.calls[0][0]).not.toHaveProperty('expand');
+    expect(mockRetrieveCustomer).toHaveBeenCalledWith('cus_123');
+    expect(wrapper.find(ContextView)).toContainText('customer@example.com');
     expect(wrapper.find(ContextView)).toContainText('Schedule sub_sched_...ed_1');
     expect(wrapper.find(ContextView)).toContainText('Confirmation SAWFVCXZZA');
     expect(wrapper.find(ContextView)).not.toContainText('Search results');
@@ -190,24 +209,24 @@ describe('ScheduleSearchView', () => {
     expect(mockListSchedules.mock.calls[2][0].created).toEqual(defaultRange);
   });
 
-  it('reports overflow and makes no request after match 101', async () => {
+  it('reports overflow and makes no request after match 51', async () => {
     mockListSchedules
       .mockResolvedValueOnce(
         page(
-          Array.from({ length: 100 }, (_, i) => schedule(i)),
+          Array.from({ length: 50 }, (_, i) => schedule(i)),
           true
         )
       )
-      .mockResolvedValueOnce(page([schedule(101)], true));
+      .mockResolvedValueOnce(page([schedule(51)], true));
     const { wrapper, update } = render(<ScheduleSearch {...getMockContextProps()} />);
     startSearch(wrapper);
     await update();
-    expect(wrapper.find(Banner)).toHaveProps({ title: 'More than 100 matches' });
-    expect(wrapper.find(ContextView)).not.toContainText('All 101');
+    expect(wrapper.find(Banner)).toHaveProps({ title: 'More than 50 matches' });
+    expect(wrapper.find(ContextView)).not.toContainText('All 51');
     expect(mockListSchedules).toHaveBeenCalledTimes(2);
     const cached = JSON.parse(setStoredSearch.mock.calls[1][0]);
     expect(cached.status).toBe('limit_reached');
-    expect(cached.results).toHaveLength(100);
+    expect(cached.results).toHaveLength(50);
   });
 
   it('pauses without showing a no-matches message, then continues', async () => {
@@ -219,7 +238,7 @@ describe('ScheduleSearchView', () => {
     await update();
     expect(wrapper.find(Banner)).toHaveProps({ title: 'Search paused' });
     expect(wrapper.find(ContextView)).not.toContainText('No matching schedules');
-    expect(mockListSchedules).toHaveBeenCalledTimes(20);
+    expect(mockListSchedules).toHaveBeenCalledTimes(MAX_PAGES_PER_BATCH);
     mockListSchedules.mockResolvedValueOnce(page([]));
     requireNode(
       wrapper.findAll(Button).find((button) => button.text === 'Continue searching')
@@ -443,9 +462,9 @@ describe('ScheduleSearchView', () => {
         scope: { accountId: 'acct_1234', mode: 'test' },
         criteria: { ...getDefaultSearchCriteria(), accountNumber: '111' },
         searchedAt: 1704067200,
-        scannedScheduleCount: 101,
+        scannedScheduleCount: 51,
         status: 'limit_reached',
-        results: Array.from({ length: 100 }, (_, i) => ({
+        results: Array.from({ length: 50 }, (_, i) => ({
           scheduleId: 'sub_sched_' + i,
           customerId: 'cus_123',
           customerEmail: null,
@@ -461,7 +480,7 @@ describe('ScheduleSearchView', () => {
       setStoredSearch,
     ]);
     const { wrapper } = render(<ScheduleSearch {...getMockContextProps()} />);
-    expect(wrapper.find(Banner)).toHaveProps({ title: 'More than 100 matches' });
+    expect(wrapper.find(Banner)).toHaveProps({ title: 'More than 50 matches' });
     expect(wrapper.find(DateField, { label: 'From' })).toHaveProps({
       value: getDefaultSearchCriteria().createdAfter,
     });

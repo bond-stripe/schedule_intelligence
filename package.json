@@ -41,6 +41,7 @@
   "private": true,
   "scripts": {
     "build": "pnpm -r --if-present build",
+    "bulk:subs": "tsx tools/create-bulk-subscription-schedules.mts",
     "check": "pnpm build && pnpm lint && pnpm test",
     "fix:format": "prettier --write .",
     "fix:lint": "eslint --fix . --ignore-pattern 'extensions/**' && pnpm -r --filter './extensions/*' --if-present fix:lint",

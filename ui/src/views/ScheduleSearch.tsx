@@ -11,6 +11,7 @@ import {
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 
 import BrandIcon from './brand_icon.svg';
+import { GM_FINANCIAL_BLUE } from './branding';
 import { getSearchStorageKey, type SearchScope } from './scheduleSearchData';
 import ScheduleSearchResults from './ScheduleSearchResults';
 import { useScheduleSearch } from './useScheduleSearch';
@@ -34,7 +35,7 @@ const ScheduleSearchView = ({ scope }: { scope: SearchScope }) => {
   const { results, scannedScheduleCount } = search;
 
   return (
-    <ContextView title="" brandColor="#F6F8FA" brandIcon={BrandIcon}>
+    <ContextView title="" brandColor={GM_FINANCIAL_BLUE} brandIcon={BrandIcon}>
       <Box css={{ stack: 'y', rowGap: 'large' }}>
         <Box css={{ stack: 'y', rowGap: 'medium' }}>
           <TextField
@@ -142,8 +143,8 @@ const ScheduleSearchView = ({ scope }: { scope: SearchScope }) => {
         {search.status === 'limit_reached' && (
           <Banner
             type="caution"
-            title="More than 100 matches"
-            description="Showing the first 100. Refine your identifiers or date range, then search again."
+            title="More than 50 matches"
+            description="Showing the first 50. Refine your identifiers or date range, then search again."
           />
         )}
         {cacheWarning && (

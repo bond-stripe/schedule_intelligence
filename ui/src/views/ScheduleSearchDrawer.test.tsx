@@ -30,7 +30,7 @@ const storageWrites = jest.fn();
 // re-render regression, while sharing the saved string between viewport mounts.
 function useTestStorage(key: string): ReturnType<typeof useStorage> {
   expect(key).toMatch(
-    /^scheduled-subscription-search:last-search:v11:acct_1234:(test|live)$/
+    /^scheduled-subscription-search:last-search:v12:acct_1234:(test|live)$/
   );
   const [value, setValue] = useState(storedSearch);
   return [

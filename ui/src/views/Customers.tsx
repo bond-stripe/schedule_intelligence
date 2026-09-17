@@ -2,6 +2,7 @@ import { Box, ContextView, Divider, Inline, Link } from '@stripe/ui-extension-sd
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 
 import BrandIcon from './brand_icon.svg';
+import { GM_FINANCIAL_BLUE } from './branding';
 
 /**
  * This is a view that is rendered in the Stripe dashboard's customer list page.
@@ -12,8 +13,8 @@ const Customers = ({ userContext, environment }: ExtensionContextValue) => {
   return (
     <ContextView
       title="Customers page"
-      brandColor="#F6F8FA" // replace this with your brand color
-      brandIcon={BrandIcon} // replace this with your brand icon
+      brandColor={GM_FINANCIAL_BLUE}
+      brandIcon={BrandIcon}
       externalLink={{
         label: 'Stripe Apps docs',
         href: 'https://stripe.com/docs/stripe-apps',

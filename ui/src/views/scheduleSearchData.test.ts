@@ -57,9 +57,9 @@ describe('scoped search cache', () => {
     };
     expect(parseCachedSearch(JSON.stringify(cache), scope)).toEqual(cache);
   });
-  it('uses a new cache key so searches that excluded released schedules are not restored', () => {
+  it('uses the current cache schema key', () => {
     expect(getSearchStorageKey(scope)).toBe(
-      'scheduled-subscription-search:last-search:v11:acct_1234:test'
+      'scheduled-subscription-search:last-search:v12:acct_1234:test'
     );
   });
   it('isolates accounts and modes in both key and body validation', () => {
@@ -87,7 +87,7 @@ describe('scoped search cache', () => {
     { scannedScheduleCount: 0.5 },
     { status: 'limit_reached' },
     { criteria: { ...valid.criteria, createdBefore: '2024-01-01' } },
-    { results: Array(101).fill(valid.results[0]) },
+    { results: Array(51).fill(valid.results[0]) },
     { results: [{ ...valid.results[0], endDate: 'tomorrow' }] },
     { results: [{ ...valid.results[0], status: 'invalid' }] },
   ])('rejects invalid or incomplete cache state %#', (change) => {

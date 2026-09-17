@@ -1,5 +1,6 @@
 import {
   createScheduleSearch,
+  enrichCustomerEmails,
   getScheduleDates,
   MAX_PAGES_PER_BATCH,
   type ListSchedulePage,
@@ -47,6 +48,32 @@ describe('schedule search engine', () => {
     });
 
   beforeEach(() => listSchedules.mockReset());
+
+  it('enriches unique customers only after scanning and tolerates lookup failures', async () => {
+    const rows = (
+      await (async () => {
+        listSchedules.mockResolvedValue(page([schedule(1), schedule(2)]));
+        return newSearch().runBatch();
+      })()
+    ).results;
+    const retrieveCustomer = jest.fn(async (customerId: string) => {
+      if (customerId === 'cus_missing') throw new Error('Not found');
+      return { email: 'customer@example.com' };
+    });
+    const withMissingCustomer = [
+      ...rows,
+      { ...rows[0], scheduleId: 'sub_sched_missing', customerId: 'cus_missing' },
+    ];
+
+    const enriched = await enrichCustomerEmails(withMissingCustomer, retrieveCustomer);
+
+    expect(retrieveCustomer).toHaveBeenCalledTimes(2);
+    expect(enriched.slice(0, 2).map((result) => result.customerEmail)).toEqual([
+      'customer@example.com',
+      'customer@example.com',
+    ]);
+    expect(enriched[2].customerEmail).toBeNull();
+  });
 
   it('matches trimmed, case-insensitive prefixes with AND semantics', async () => {
     listSchedules.mockResolvedValue(
@@ -114,11 +141,10 @@ describe('schedule search engine', () => {
     const onProgress = jest.fn();
     const result = await newSearch().runBatch({ onProgress });
     expect(listSchedules.mock.calls.map(([params]) => params)).toEqual([
-      { created: { gte: 123456, lt: 1900000000 }, limit: 100, expand: ['data.customer'] },
+      { created: { gte: 123456, lt: 1900000000 }, limit: 100 },
       {
         created: { gte: 123456, lt: 1900000000 },
         limit: 100,
-        expand: ['data.customer'],
         starting_after: 'sub_sched_2',
       },
     ]);
@@ -132,41 +158,41 @@ describe('schedule search engine', () => {
     expect(result.scannedScheduleCount).toBe(3);
   });
 
-  it('stops on match 101 without retaining it or requesting page three', async () => {
+  it('stops on match 51 without retaining it or requesting page three', async () => {
     listSchedules
       .mockResolvedValueOnce(
         page(
-          Array.from({ length: 100 }, (_, i) => schedule(i)),
+          Array.from({ length: 50 }, (_, i) => schedule(i)),
           true
         )
       )
       .mockResolvedValueOnce(
-        page([schedule(100, 'other'), schedule(101), schedule(102)], true)
+        page([schedule(50, 'other'), schedule(51), schedule(52)], true)
       );
     const search = newSearch();
     const result = await search.runBatch();
     expect(result.status).toBe('limit_reached');
-    expect(result.results).toHaveLength(100);
-    expect(result.results[99].scheduleId).toBe('sub_sched_99');
-    expect(result.scannedScheduleCount).toBe(102);
+    expect(result.results).toHaveLength(50);
+    expect(result.results[49].scheduleId).toBe('sub_sched_49');
+    expect(result.scannedScheduleCount).toBe(52);
     expect(listSchedules).toHaveBeenCalledTimes(2);
     expect(await search.runBatch()).toEqual(result);
     expect(listSchedules).toHaveBeenCalledTimes(2);
   });
 
-  it('does not claim overflow for exactly 100 matches with more nonmatching pages', async () => {
+  it('does not claim overflow for exactly 50 matches with more nonmatching pages', async () => {
     listSchedules
       .mockResolvedValueOnce(
         page(
-          Array.from({ length: 100 }, (_, i) => schedule(i)),
+          Array.from({ length: 50 }, (_, i) => schedule(i)),
           true
         )
       )
-      .mockResolvedValueOnce(page([schedule(101, 'other')], true))
-      .mockResolvedValueOnce(page([schedule(102, 'other')]));
+      .mockResolvedValueOnce(page([schedule(51, 'other')], true))
+      .mockResolvedValueOnce(page([schedule(52, 'other')]));
     const result = await newSearch().runBatch();
     expect(result.status).toBe('complete');
-    expect(result.results).toHaveLength(100);
+    expect(result.results).toHaveLength(50);
     expect(listSchedules).toHaveBeenCalledTimes(3);
   });
 
@@ -276,8 +302,8 @@ describe('schedule search engine', () => {
     expect(listSchedules).toHaveBeenCalledTimes(2);
   });
 
-  it('counts released matches toward the result limit and stops at match 101', async () => {
-    const released = Array.from({ length: 100 }, (_, i) => ({
+  it('counts released matches toward the result limit and stops at match 51', async () => {
+    const released = Array.from({ length: 50 }, (_, i) => ({
       ...schedule(i),
       status: 'released' as const,
     }));
@@ -286,9 +312,9 @@ describe('schedule search engine', () => {
       .mockResolvedValueOnce(page([{ ...schedule(101), status: 'released' }], true));
     const result = await newSearch().runBatch();
     expect(result.status).toBe('limit_reached');
-    expect(result.results).toHaveLength(100);
+    expect(result.results).toHaveLength(50);
     expect(result.results.every((row) => row.status === 'released')).toBe(true);
-    expect(result.scannedScheduleCount).toBe(101);
+    expect(result.scannedScheduleCount).toBe(51);
     expect(listSchedules).toHaveBeenCalledTimes(2);
   });
 

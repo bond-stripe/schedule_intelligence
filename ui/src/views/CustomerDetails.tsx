@@ -13,6 +13,7 @@ import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 import { clipboardWriteText } from '@stripe/ui-extension-sdk/utils';
 
 import BrandIcon from './brand_icon.svg';
+import { GM_FINANCIAL_BLUE } from './branding';
 
 /**
  * This is a view that is rendered in the Stripe dashboard's customer detail page.
@@ -35,8 +36,8 @@ const CustomerDetails = ({ userContext, environment }: ExtensionContextValue) =>
   return (
     <ContextView
       title="Customer details page"
-      brandColor="#F6F8FA" // replace this with your brand color
-      brandIcon={BrandIcon} // replace this with your brand icon
+      brandColor={GM_FINANCIAL_BLUE}
+      brandIcon={BrandIcon}
       externalLink={{
         label: 'Stripe Apps docs',
         href: 'https://stripe.com/docs/stripe-apps',

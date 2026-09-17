@@ -4,6 +4,7 @@ import { useStorage } from '@stripe/ui-extension-sdk/data';
 import { createHttpClient, STRIPE_API_KEY } from '@stripe/ui-extension-sdk/http_client';
 import {
   createScheduleSearch,
+  enrichCustomerEmails,
   type ScanOutcome,
   type SearchProgress,
 } from './scheduleSearchEngine';
@@ -131,6 +132,15 @@ export const useScheduleSearch = ({ accountId, mode }: SearchScope) => {
     }
     if (currentRun.current !== runId) return;
     const settled = outcome.status === 'complete' || outcome.status === 'limit_reached';
+    if (settled) {
+      const results = await enrichCustomerEmails(
+        outcome.results,
+        (customerId) => stripe.customers.retrieve(customerId),
+        () => currentRun.current !== runId
+      );
+      if (currentRun.current !== runId) return;
+      outcome = { ...outcome, results };
+    }
     const searchedAt = Math.floor(Date.now() / 1000);
     setSearch({
       ...outcome,
