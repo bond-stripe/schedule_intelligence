@@ -4,7 +4,7 @@ Guidance for AI coding agents (Codex, Claude Code, etc.) working in this reposit
 
 ## What this is
 
-**Scheduled Subscription Search** (`id: gmf-app`) is a [Stripe App](https://docs.stripe.com/stripe-apps)
+**Future Dated Subscriptions** (`id: gmf-app`) is a [Stripe App](https://docs.stripe.com/stripe-apps)
 that adds a UI extension to the Stripe Dashboard. It is built with TypeScript + React
 (React 17) using Stripe's [UI Extensions SDK](https://docs.stripe.com/stripe-apps/reference/extensions-sdk-api.md)
 and [UI toolkit](https://docs.stripe.com/stripe-apps/design.md).
@@ -16,29 +16,27 @@ Apps constraints" below before adding dependencies, network calls, or DOM/browse
 
 Support agents need to find schedules by first-phase `AccountNumber` and/or
 `ConfirmationNumber` metadata. Stripe has no schedule metadata search endpoint.
-The app lists schedules in a user-selected creation-date range (default: one calendar
-month ago through today), then filters first-phase metadata locally with case-insensitive
-prefix matching (AND when both fields are set). All statuses, including released
-schedules, are always eligible; there is no status filter.
+The app lists only schedules that have not started (`scheduled: true`), then filters
+first-phase metadata locally with case-insensitive prefix matching (AND when both fields
+are set). Active, completed, released, and canceled schedules are not eligible.
 
 The page-by-page scanner lives in `ui/src/views/scheduleSearchEngine.ts`;
 `ScheduleSearch.tsx` renders the form and `useScheduleSearch.ts` manages its lifecycle.
-It retains up to 100 compact rows and
-stops at the 101st match. Searches pause after 20 pages and can be continued; failures
+It retains up to 50 compact rows and
+stops at the 51st match. Searches pause after 50 pages and can be continued; failures
 retain partial matches and can retry the failed page. Never present an incomplete
 zero-match scan as a completed search.
 
 The earlier customer `account_id` lookup is no longer the current metadata contract.
 Do not replace the phase-metadata workflow with it or invent a schedule metadata
-search endpoint. Date inputs use the SDK `DateField`. Both dates are inclusive in local
-time; use `created.gte` and the next calendar day's `created.lt` (not a fixed 24 hours).
-The form stays visible and keeps edited criteria separate from submitted results.
+search endpoint. Use the Subscription Schedule list API's `scheduled: true` parameter;
+do not reintroduce a created-date scan. The form stays visible and keeps edited criteria
+separate from submitted results.
 
 Schedule Ends comes from the **final** phase's `end_date`, already calculated by Stripe.
 Do not infer a total subscription term from price billing frequency or fetch prices for
-this display. Omit actual cancellation timestamps from results, keeping the Canceled
-badge and planned end. Keep completed/released timestamps separate from the planned
-end, and explain that releasing a schedule does not cancel its subscription.
+this display. Releasing a schedule does not cancel its subscription, but released and
+other non-future schedules are outside this app's search scope.
 
 ## Repository layout
 
@@ -137,7 +135,7 @@ report the actual output.** Do not assert success without running the commands.
   via the wrapper (`wrapper.find(TextField)`, `.toContainText(...)`, `.toHaveProps(...)`).
 - **Pagination/limits**: preserve `MAX_PAGES_PER_BATCH` and `MAX_RESULTS`. Keep overflow,
   pause, cancellation, failure, and completion distinct. Resuming uses the existing
-  search's criteria, creation bounds, matches, and cursor. Only settled scans (complete
+  search's criteria, matches, and cursor. Only settled scans (complete
   or overflow) are cached; starting a new scan clears the prior result cache.
 - **Search terms**: normalize prefixes once per scan, and match only the first phase's
   exact metadata keys. There is no Stripe Search query interpolation in this workflow.

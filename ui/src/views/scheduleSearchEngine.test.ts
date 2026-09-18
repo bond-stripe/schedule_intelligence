@@ -14,7 +14,6 @@ const schedule = (
 ): SearchableSchedule => ({
   id: `sub_sched_${id}`,
   customer: 'cus_123',
-  created: 1704067200,
   current_phase: null,
   end_behavior: 'release',
   canceled_at: null,
@@ -43,7 +42,6 @@ describe('schedule search engine', () => {
       listSchedules,
       accountNumber: '111',
       confirmationNumber: '',
-      created: { gte: 123456, lt: 1900000000 },
       ...overrides,
     });
 
@@ -112,20 +110,18 @@ describe('schedule search engine', () => {
     expect((await newSearch().runBatch()).results).toEqual([]);
   });
 
-  it('includes all statuses by default', async () => {
-    const statuses: SearchableSchedule['status'][] = [
-      'active',
-      'canceled',
-      'completed',
-      'not_started',
-      'released',
-    ];
+  it('defensively ignores any non-future schedule returned by the API', async () => {
     listSchedules.mockResolvedValue(
-      page(statuses.map((status, i) => ({ ...schedule(i), status })))
+      page([
+        { ...schedule(1), status: 'active' },
+        { ...schedule(2), status: 'canceled' },
+        { ...schedule(3), status: 'released' },
+        schedule(4),
+      ])
     );
-    expect((await newSearch().runBatch()).results.map((row) => row.status)).toEqual(
-      statuses
-    );
+    const result = await newSearch().runBatch();
+    expect(result.results.map((row) => row.scheduleId)).toEqual(['sub_sched_4']);
+    expect(result.scannedScheduleCount).toBe(4);
   });
 
   it('rejects empty criteria and invalid budgets before making requests', () => {
@@ -134,16 +130,16 @@ describe('schedule search engine', () => {
     expect(listSchedules).not.toHaveBeenCalled();
   });
 
-  it('uses a fixed cutoff and correct cursor, publishing compact immutable snapshots', async () => {
+  it('uses the future-only filter and correct cursor, publishing compact snapshots', async () => {
     listSchedules
       .mockResolvedValueOnce(page([schedule(1), schedule(2, 'other')], true))
       .mockResolvedValueOnce(page([schedule(3)]));
     const onProgress = jest.fn();
     const result = await newSearch().runBatch({ onProgress });
     expect(listSchedules.mock.calls.map(([params]) => params)).toEqual([
-      { created: { gte: 123456, lt: 1900000000 }, limit: 100 },
+      { scheduled: true, limit: 100 },
       {
-        created: { gte: 123456, lt: 1900000000 },
+        scheduled: true,
         limit: 100,
         starting_after: 'sub_sched_2',
       },
@@ -302,36 +298,14 @@ describe('schedule search engine', () => {
     expect(listSchedules).toHaveBeenCalledTimes(2);
   });
 
-  it('counts released matches toward the result limit and stops at match 51', async () => {
-    const released = Array.from({ length: 50 }, (_, i) => ({
-      ...schedule(i),
-      status: 'released' as const,
-    }));
-    listSchedules
-      .mockResolvedValueOnce(page(released, true))
-      .mockResolvedValueOnce(page([{ ...schedule(101), status: 'released' }], true));
-    const result = await newSearch().runBatch();
-    expect(result.status).toBe('limit_reached');
-    expect(result.results).toHaveLength(50);
-    expect(result.results.every((row) => row.status === 'released')).toBe(true);
-    expect(result.scannedScheduleCount).toBe(51);
-    expect(listSchedules).toHaveBeenCalledTimes(2);
-  });
-
-  it('preserves both creation bounds across continuation and rejects invalid ranges', async () => {
-    const created = { gte: 123456, lt: 1900000000 };
-    const search = newSearch({ created, maxPagesPerBatch: 1 });
+  it('preserves the future-only filter across continuation', async () => {
+    const search = newSearch({ maxPagesPerBatch: 1 });
     listSchedules
       .mockResolvedValueOnce(page([schedule(1)], true))
       .mockResolvedValueOnce(page([]));
     await search.runBatch();
-    created.lt = 2000000000;
     await search.runBatch();
-    expect(listSchedules.mock.calls[1][0].created).toEqual({
-      gte: 123456,
-      lt: 1900000000,
-    });
-    expect(() => newSearch({ created: { gte: 20, lt: 10 } })).toThrow('date range');
+    expect(listSchedules.mock.calls[1][0]).toMatchObject({ scheduled: true });
   });
 
   it('uses the last phase end, independent of the current phase', () => {

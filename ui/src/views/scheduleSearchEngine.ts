@@ -1,7 +1,6 @@
 import type Stripe from 'stripe';
 
 import { isTimestamp, MAX_RESULTS, type SearchResult } from './scheduleSearchData';
-import type { CreatedRange } from './scheduleSearchDates';
 
 export const PAGE_SIZE = 100;
 export const MAX_PAGES_PER_BATCH = 50;
@@ -12,7 +11,6 @@ export type SearchableSchedule = Pick<
   Stripe.SubscriptionSchedule,
   | 'id'
   | 'customer'
-  | 'created'
   | 'current_phase'
   | 'status'
   | 'end_behavior'
@@ -120,13 +118,11 @@ export const createScheduleSearch = ({
   listSchedules,
   accountNumber,
   confirmationNumber,
-  created,
   maxPagesPerBatch = MAX_PAGES_PER_BATCH,
 }: {
   listSchedules: ListSchedulePage;
   accountNumber: string;
   confirmationNumber: string;
-  created: CreatedRange;
   maxPagesPerBatch?: number;
 }) => {
   const accountPrefix = accountNumber.trim().toLowerCase();
@@ -137,16 +133,6 @@ export const createScheduleSearch = ({
   if (!Number.isInteger(maxPagesPerBatch) || maxPagesPerBatch < 1) {
     throw new Error('The page budget must be a positive integer.');
   }
-  if (
-    !isTimestamp(created.gte) ||
-    !isTimestamp(created.lt) ||
-    created.gte >= created.lt
-  ) {
-    throw new Error('Choose a valid creation date range.');
-  }
-  // Snapshot the bounds so editing criteria cannot change a resumed search.
-  const createdRange = { ...created };
-
   const results: SearchResult[] = [];
   let scannedScheduleCount = 0;
   let startingAfter: string | undefined;
@@ -173,7 +159,7 @@ export const createScheduleSearch = ({
       let page: Awaited<ReturnType<ListSchedulePage>>;
       try {
         page = await listSchedules({
-          created: { ...createdRange },
+          scheduled: true,
           limit: PAGE_SIZE,
           ...(startingAfter ? { starting_after: startingAfter } : {}),
         });
@@ -198,6 +184,9 @@ export const createScheduleSearch = ({
 
       for (const schedule of page.data) {
         scannedScheduleCount += 1;
+        // `scheduled: true` should only return not-started schedules. Keep the
+        // local guard so an unexpected API response cannot surface a historical one.
+        if (schedule.status !== 'not_started') continue;
         const metadata = getFirstPhaseSearchMetadata(schedule);
         if (
           !metadata.accountNumber.toLowerCase().startsWith(accountPrefix) ||

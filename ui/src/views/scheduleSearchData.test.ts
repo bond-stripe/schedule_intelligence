@@ -26,8 +26,6 @@ describe('scoped search cache', () => {
     criteria: {
       accountNumber: '111',
       confirmationNumber: '',
-      createdAfter: '2025-01-01',
-      createdBefore: '2026-01-01',
     },
     searchedAt: 1767225600,
     scannedScheduleCount: 1,
@@ -50,16 +48,16 @@ describe('scoped search cache', () => {
   it('round-trips filters, end dates, and freshness', () => {
     expect(parseCachedSearch(JSON.stringify(valid), scope)).toEqual(valid);
   });
-  it('round-trips released results and their release timestamps', () => {
+  it('rejects cached results that are no longer future schedules', () => {
     const cache = {
       ...valid,
       results: [{ ...valid.results[0], status: 'released', endedAt: 1767225600 }],
     };
-    expect(parseCachedSearch(JSON.stringify(cache), scope)).toEqual(cache);
+    expect(parseCachedSearch(JSON.stringify(cache), scope)).toBeNull();
   });
   it('uses the current cache schema key', () => {
     expect(getSearchStorageKey(scope)).toBe(
-      'scheduled-subscription-search:last-search:v12:acct_1234:test'
+      'scheduled-subscription-search:last-search:v13:acct_1234:test'
     );
   });
   it('isolates accounts and modes in both key and body validation', () => {
@@ -86,7 +84,7 @@ describe('scoped search cache', () => {
     { scannedScheduleCount: -1 },
     { scannedScheduleCount: 0.5 },
     { status: 'limit_reached' },
-    { criteria: { ...valid.criteria, createdBefore: '2024-01-01' } },
+    { criteria: { accountNumber: '', confirmationNumber: '' } },
     { results: Array(51).fill(valid.results[0]) },
     { results: [{ ...valid.results[0], endDate: 'tomorrow' }] },
     { results: [{ ...valid.results[0], status: 'invalid' }] },

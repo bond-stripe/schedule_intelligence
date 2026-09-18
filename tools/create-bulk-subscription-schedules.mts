@@ -149,7 +149,7 @@ async function createLeaseSchedule(): Promise<CreatedFixture> {
     stripePost('/v1/customers', [
       ['name', fixture.customerName],
       ['email', fixture.customerEmail],
-      ['description', 'Bulk fixture for Scheduled Subscription Search'],
+      ['description', 'Bulk fixture for Future Dated Subscriptions'],
     ]),
     stripePost('/v1/products', [
       ['name', `Lease payment ${fixture.suffix}`],

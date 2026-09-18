@@ -16,7 +16,6 @@ import {
 } from './scheduleSearchData';
 import {
   criteriaEqual,
-  getCreatedRange,
   getDefaultSearchCriteria,
   normalizeCriteria,
   type SearchCriteria,
@@ -80,11 +79,8 @@ export const useScheduleSearch = ({ accountId, mode }: SearchScope) => {
   );
 
   const loading = search.status === 'loading';
-  const dateValidation = getCreatedRange(draft.createdAfter, draft.createdBefore);
   const canSearch =
-    !loading &&
-    dateValidation.range !== null &&
-    Boolean(draft.accountNumber.trim() || draft.confirmationNumber.trim());
+    !loading && Boolean(draft.accountNumber.trim() || draft.confirmationNumber.trim());
   const criteriaChanged =
     search.submitted !== null && !criteriaEqual(draft, search.submitted);
   const canResume =
@@ -161,14 +157,13 @@ export const useScheduleSearch = ({ accountId, mode }: SearchScope) => {
   };
 
   const searchSchedules = () => {
-    if (!canSearch || running.current || !dateValidation.range) return;
+    if (!canSearch || running.current) return;
     const criteria = normalizeCriteria(draft);
     session.current = {
       scanner: createScheduleSearch({
         listSchedules: (params) => stripe.subscriptionSchedules.list(params),
         accountNumber: criteria.accountNumber,
         confirmationNumber: criteria.confirmationNumber,
-        created: dateValidation.range,
       }),
       criteria,
     };
@@ -199,7 +194,6 @@ export const useScheduleSearch = ({ accountId, mode }: SearchScope) => {
     canSearch,
     canResume,
     criteriaChanged,
-    dateValidation,
     cacheWarning,
     searchSchedules,
     cancelSearch,

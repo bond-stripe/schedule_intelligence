@@ -30,7 +30,7 @@ const storageWrites = jest.fn();
 // re-render regression, while sharing the saved string between viewport mounts.
 function useTestStorage(key: string): ReturnType<typeof useStorage> {
   expect(key).toMatch(
-    /^scheduled-subscription-search:last-search:v12:acct_1234:(test|live)$/
+    /^scheduled-subscription-search:last-search:v13:acct_1234:(test|live)$/
   );
   const [value, setValue] = useState(storedSearch);
   return [
@@ -61,8 +61,6 @@ const savedSearch: CachedSearch = {
   criteria: {
     accountNumber: '123456',
     confirmationNumber: 'ABC123',
-    createdAfter: '2023-01-01',
-    createdBefore: '2024-01-01',
   },
   searchedAt: 1704067200,
   scannedScheduleCount: 1,
@@ -85,7 +83,6 @@ const savedSearch: CachedSearch = {
 const matchingSchedule: SearchableSchedule = {
   id: 'sub_sched_1234',
   customer: 'cus_1234',
-  created: 1704067200,
   current_phase: null,
   end_behavior: 'release',
   canceled_at: null,

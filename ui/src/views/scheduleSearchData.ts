@@ -1,8 +1,8 @@
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
-import { getCreatedRange, type SearchCriteria } from './scheduleSearchDates';
+import type { SearchCriteria } from './scheduleSearchDates';
 
 // Increment when cached result semantics or validation rules change.
-export const SEARCH_STORAGE_KEY = 'scheduled-subscription-search:last-search:v12';
+export const SEARCH_STORAGE_KEY = 'scheduled-subscription-search:last-search:v13';
 export const MAX_RESULTS = 50;
 export type SearchScope = {
   accountId: string;
@@ -66,10 +66,7 @@ const isCriteria = (value: unknown): value is SearchCriteria =>
   isRecord(value) &&
   typeof value.accountNumber === 'string' &&
   typeof value.confirmationNumber === 'string' &&
-  Boolean(value.accountNumber.trim() || value.confirmationNumber.trim()) &&
-  typeof value.createdAfter === 'string' &&
-  typeof value.createdBefore === 'string' &&
-  getCreatedRange(value.createdAfter, value.createdBefore).range !== null;
+  Boolean(value.accountNumber.trim() || value.confirmationNumber.trim());
 const isResult = (value: unknown): value is SearchResult =>
   isRecord(value) &&
   typeof value.scheduleId === 'string' &&
@@ -82,9 +79,7 @@ const isResult = (value: unknown): value is SearchResult =>
   isNullableTimestamp(value.endDate) &&
   isNullableTimestamp(value.endedAt) &&
   ['cancel', 'release', 'other'].includes(value.endBehavior as string) &&
-  ['active', 'canceled', 'completed', 'not_started', 'released'].includes(
-    value.status as string
-  );
+  value.status === 'not_started';
 
 export const parseCachedSearch = (
   value: string | null,

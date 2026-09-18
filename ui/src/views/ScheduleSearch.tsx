@@ -3,7 +3,6 @@ import {
   Box,
   Button,
   ContextView,
-  DateField,
   Link,
   Spinner,
   TextField,
@@ -25,7 +24,6 @@ const ScheduleSearchView = ({ scope }: { scope: SearchScope }) => {
     canSearch,
     canResume,
     criteriaChanged,
-    dateValidation,
     cacheWarning,
     searchSchedules,
     cancelSearch,
@@ -60,27 +58,6 @@ const ScheduleSearchView = ({ scope }: { scope: SearchScope }) => {
               if (event.key === 'Enter') searchSchedules();
             }}
           />
-          <Box css={{ stack: 'y', rowGap: 'small' }}>
-            <Box css={{ font: 'bodyEmphasized' }}>Created date</Box>
-            <Box css={{ stack: 'x', columnGap: 'medium', rowGap: 'small', wrap: 'wrap' }}>
-              <DateField
-                label="From"
-                value={draft.createdAfter}
-                disabled={loading}
-                onChange={(value) => updateDraft({ createdAfter: value })}
-                invalid={Boolean(dateValidation.afterError)}
-                error={dateValidation.afterError}
-              />
-              <DateField
-                label="To"
-                value={draft.createdBefore}
-                disabled={loading}
-                onChange={(value) => updateDraft({ createdBefore: value })}
-                invalid={Boolean(dateValidation.beforeError)}
-                error={dateValidation.beforeError}
-              />
-            </Box>
-          </Box>
           <Box css={{ stack: 'x', columnGap: 'medium', alignY: 'center' }}>
             <Button
               type="primary"
@@ -136,7 +113,7 @@ const ScheduleSearchView = ({ scope }: { scope: SearchScope }) => {
             type="caution"
             title="No matching schedules"
             description={
-              'Checked ' + scannedScheduleCount + ' schedules in the searched date range.'
+              'Checked ' + scannedScheduleCount + ' future subscription schedules.'
             }
           />
         )}
@@ -144,7 +121,7 @@ const ScheduleSearchView = ({ scope }: { scope: SearchScope }) => {
           <Banner
             type="caution"
             title="More than 50 matches"
-            description="Showing the first 50. Refine your identifiers or date range, then search again."
+            description="Showing the first 50. Refine your identifiers, then search again."
           />
         )}
         {cacheWarning && (
