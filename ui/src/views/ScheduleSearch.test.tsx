@@ -6,7 +6,6 @@ import {
   ContextView,
   Link,
   TextField,
-  Tooltip,
 } from '@stripe/ui-extension-sdk/ui';
 import { useStorage } from '@stripe/ui-extension-sdk/data';
 
@@ -84,9 +83,13 @@ describe('ScheduleSearchView', () => {
     mockUseStorage.mockReturnValue([null, setStoredSearch]);
   });
 
-  it('renders the search criteria without a redundant heading or info tooltip', () => {
+  it('renders the search criteria with scope guidance in the app header', () => {
     const { wrapper } = render(<ScheduleSearch {...getMockContextProps()} />);
-    expect(wrapper.find(ContextView)).toHaveProps({ brandColor: GM_FINANCIAL_BLUE });
+    expect(wrapper.find(ContextView)).toHaveProps({
+      brandColor: GM_FINANCIAL_BLUE,
+      description:
+        'Future dated subscriptions only. For active subs, use main search bar',
+    });
     expect(wrapper.find(TextField, { label: 'Account number' })).toHaveProps({
       placeholder: '111...',
       value: '',
@@ -97,7 +100,6 @@ describe('ScheduleSearchView', () => {
     });
     expect(wrapper.find(ContextView)).not.toContainText('Created date');
     expect(wrapper.find(ContextView)).not.toContainText('Subscription schedule search');
-    expect(wrapper.find(Tooltip)).toBeNull();
     expect(wrapper.find(Button)).toHaveProps({ disabled: true });
   });
 

@@ -33,7 +33,12 @@ const ScheduleSearchView = ({ scope }: { scope: SearchScope }) => {
   const { results, scannedScheduleCount } = search;
 
   return (
-    <ContextView title="" brandColor={GM_FINANCIAL_BLUE} brandIcon={BrandIcon}>
+    <ContextView
+      title=""
+      description="Future dated subscriptions only. For active subs, use main search bar"
+      brandColor={GM_FINANCIAL_BLUE}
+      brandIcon={BrandIcon}
+    >
       <Box css={{ stack: 'y', rowGap: 'large' }}>
         <Box css={{ stack: 'y', rowGap: 'medium' }}>
           <TextField
