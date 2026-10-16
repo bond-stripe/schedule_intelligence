@@ -4,7 +4,8 @@ Guidance for AI coding agents (Codex, Claude Code, etc.) working in this reposit
 
 ## What this is
 
-**Future Dated Subscriptions** (`id: gmf-app`) is a [Stripe App](https://docs.stripe.com/stripe-apps)
+**Future Dated Subscriptions** (manifest `id: sub-schedules-search`; the pnpm root
+package is named `gmf-app`) is a [Stripe App](https://docs.stripe.com/stripe-apps)
 that adds a UI extension to the Stripe Dashboard. It is built with TypeScript + React
 (React 17) using Stripe's [UI Extensions SDK](https://docs.stripe.com/stripe-apps/reference/extensions-sdk-api.md)
 and [UI toolkit](https://docs.stripe.com/stripe-apps/design.md).
@@ -20,9 +21,9 @@ The app lists only schedules that have not started (`scheduled: true`), then fil
 first-phase metadata locally with case-insensitive prefix matching (AND when both fields
 are set). Active, completed, released, and canceled schedules are not eligible.
 
-The page-by-page scanner lives in `ui/src/views/scheduleSearchEngine.ts`;
-`ScheduleSearch.tsx` renders the form and `useScheduleSearch.ts` manages its lifecycle.
-It retains up to 50 compact rows and
+The page-by-page scanner lives in `ui/src/views/scheduleSearchEngine.ts`
+(`PAGE_SIZE = 100`, `MAX_PAGES_PER_BATCH = 50`); `ScheduleSearch.tsx` renders the form
+and `useScheduleSearch.ts` manages its lifecycle and storage. It retains up to 50 compact rows and
 stops at the 51st match. Searches pause after 50 pages and can be continued; failures
 retain partial matches and can retry the failed page. Never present an incomplete
 zero-match scan as a completed search.
@@ -40,13 +41,27 @@ other non-future schedules are outside this app's search scope.
 
 ## Repository layout
 
-pnpm workspace (`pnpm-workspace.yaml`). Packages: `ui`, `custom-objects`, `extensions/*`.
+pnpm workspace (`pnpm-workspace.yaml`). Packages: `ui`, `custom-objects`, `extensions/*`
+(the `extensions/` directory does not exist yet).
 
-- `stripe-app.yaml` — the app manifest (schema v2.0.0). Declares the app id/name,
+- `stripe-app.yaml` — the app manifest (schema v2.0.0). Declares the app id/name/version,
   `stripe_api_access` permissions, and `ui_extension.views` (viewport → component).
   **Edit this via the Stripe CLI, not by hand, where possible** (see commands below).
-- `ui/` — the UI extension (the only substantive package today).
-  - `src/views/` — one file per view component. The four views registered in the manifest
+  The manifest `version` is what Stripe uses for uploads; the `package.json` versions
+  are not kept in sync with it.
+- `ui/` — the UI extension (the only substantive package today). It has no `build`
+  script; `pnpm build` only reaches the custom-objects scaffold.
+  - `src/views/` — view components plus search modules:
+    - `scheduleSearchEngine.ts` — paginated scanner and first-phase metadata matching.
+    - `useScheduleSearch.ts` — draft/submitted criteria, scan lifecycle, Stripe client,
+      `useStorage` cache.
+    - `scheduleSearchData.ts` — `SearchResult`/`CachedSearch` types, `MAX_RESULTS`,
+      `SEARCH_STORAGE_KEY` (currently `:v13`), cache validation (`parseCachedSearch`),
+      date/ID formatting, and `getDashboardUrl`.
+    - `scheduleSearchDates.ts` — despite the name, holds `SearchCriteria` and its
+      normalize/equality helpers (no date logic; start/end dates are derived in the engine).
+    - `ScheduleSearchResults.tsx` — result rows, status badges, and end-behavior notes.
+  - The four views registered in the manifest
     (`ScheduleSearch`, `ScheduleSearchCustomerDetail`, `ScheduleSearchSubscriptionDetail`,
     `ScheduleSearchDrawer`) **all render the same `ScheduleSearch` component**; the latter
     three are thin wrappers. `drawer.default` provides Dashboard-wide availability,
@@ -59,25 +74,34 @@ pnpm workspace (`pnpm-workspace.yaml`). Packages: `ui`, `custom-objects`, `exten
     prefer deleting or ignoring them over building on them.
   - Tests are `*.test.tsx` alongside views, run with **Jest** (`@stripe/ui-extension-sdk/testing`).
 - `custom-objects/` — scaffold for Stripe custom objects (no `src/` yet; builds/tests are no-ops). Uses **vitest**.
-- `extensions/*` — script extensions (none present yet). Uses **vitest**.
+- `extensions/*` — script extensions (none present; directory absent). Uses **vitest**.
+- `src/views/` (repo root) — empty leftover scaffolding directory; UI code lives in `ui/src/views/`.
 - `tools/test.mts` — orchestrates the split test runners (vitest for extensions/custom-objects,
   jest for `ui/`). Failures from either runner fail the command.
+- `tools/create-bulk-subscription-schedules.mts` — `pnpm bulk:subs` fixture generator. Uses
+  the logged-in `stripe` CLI to create customers, products, a test ACH payment method
+  (`pm_usBankAccount`, so test mode only), and 12-month `end_behavior: cancel` schedules
+  with random first-phase `AccountNumber`/`ConfirmationNumber` metadata.
 
 ## Commands
 
-Run from the repo root unless noted. Package manager is **pnpm 10.x**; Node **>= 20**.
+Run from the repo root unless noted. Package manager is **pnpm 10.x**; Node **>= 20**
+(the root `engines`; `ui/package.json` still carries a stale scaffold `>=14`).
 
-| Task                                         | Command                             |
-| -------------------------------------------- | ----------------------------------- |
-| Install                                      | `pnpm install`                      |
-| Start dev server / live preview in Dashboard | `stripe apps start`                 |
-| Build all packages                           | `pnpm build`                        |
-| Lint (types + eslint + prettier)             | `pnpm lint`                         |
-| Auto-fix lint + format                       | `pnpm fix:lint` / `pnpm fix:format` |
-| Run all tests                                | `pnpm test`                         |
-| Watch UI/extension tests                     | `pnpm test:watch`                   |
-| Full gate (build + lint + test)              | `pnpm check`                        |
-| Package image for upload                     | `pnpm image`                        |
+| Task                                         | Command                                                     |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| Install                                      | `pnpm install`                                              |
+| Start dev server / live preview in Dashboard | `stripe apps start`                                         |
+| Build all packages                           | `pnpm build`                                                |
+| Lint (types + eslint + prettier)             | `pnpm lint`                                                 |
+| Auto-fix lint + format                       | `pnpm fix:lint` / `pnpm fix:format`                         |
+| Run all tests                                | `pnpm test`                                                 |
+| Watch extension/custom-object tests (vitest) | `pnpm test:watch`                                           |
+| Watch UI tests (jest)                        | `pnpm --filter ./ui exec jest --watch`                      |
+| Full gate (build + lint + test)              | `pnpm check`                                                |
+| Package image for upload                     | `pnpm image`                                                |
+| Create test-mode fixture schedules           | `pnpm bulk:subs -- <count> [--concurrency <n>] [--dry-run]` |
+| Regenerate Stripe workspace files            | `pnpm stripe:regen`                                         |
 
 Stripe CLI operations that edit the manifest:
 
@@ -88,6 +112,10 @@ stripe apps grant permission "customer_read" "why the app needs it"
 stripe apps grant url "https://api.example.com/path/" "why"   # adds connect-src CSP entry
 stripe apps revoke connect-src "https://api.example.com/path/"
 ```
+
+The Stripe CLI rewrites `stripe-app.yaml` with 4-space indentation and double quotes,
+which fails `prettier --check`. Run `pnpm fix:format` after any CLI manifest edit
+(including version bumps) or `pnpm lint`/`pnpm check` will fail.
 
 **Before claiming done, run `pnpm check` (or at minimum `pnpm lint` and `pnpm test`) and
 report the actual output.** Do not assert success without running the commands.
@@ -124,7 +152,7 @@ report the actual output.** Do not assert success without running the commands.
 - **React is v17** (`@types/react` pinned to `^17`). Don't use React 18+ APIs.
 - **Object context**: viewport components receive `environment` (mode, `objectContext`) and
   `userContext` via `ExtensionContextValue`. Use `environment.mode` to build `/test`-prefixed
-  Dashboard links (see `getDashboardUrl`).
+  Dashboard links (see `getDashboardUrl` in `scheduleSearchData.ts`).
 
 ## Conventions
 

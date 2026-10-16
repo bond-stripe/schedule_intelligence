@@ -79,11 +79,13 @@ results; they can be continued while the view remains open. Starting a new searc
 clears the previous cache and reloads schedules from Stripe. The reset link clears
 both identifiers.
 
-The v13 cache key and stored body are scoped to the Stripe account and test/live mode.
-Older caches that used different schedule eligibility rules are not restored.
-Cached data includes the submitted filters, end dates, completion/overflow state, and
-search time. The UI omits the summary heading, repeated criteria, result count, and
-search timestamp; select Search again to refresh. Legacy
+The cache key (`SEARCH_STORAGE_KEY` in `scheduleSearchData.ts`, currently `v13`) and
+stored body are scoped to the Stripe account and test/live mode. Older caches that used
+different schedule eligibility rules are not restored. Cached data includes the
+submitted filters, end dates, completion/overflow state, and search time. While
+scanning, the UI shows how many schedules have been checked; it omits a summary
+heading, repeated criteria, match count, and search timestamp. Select Search again to
+refresh. Legacy
 cache entries and malformed data are ignored. Changing account or mode remounts the
 view and invalidates any in-flight work from the previous scope.
 
@@ -146,18 +148,37 @@ pnpm install
 pnpm check
 ```
 
-The scanner is in `ui/src/views/scheduleSearchEngine.ts`; its configurable
-`MAX_PAGES_PER_BATCH` defaults to 50. `ScheduleSearch.tsx` renders the form;
+The scanner is in `ui/src/views/scheduleSearchEngine.ts`; it requests pages of
+`PAGE_SIZE` (100) and its configurable `MAX_PAGES_PER_BATCH` defaults to 50. It also
+derives start/end dates from the phases. `ScheduleSearch.tsx` renders the form;
 `useScheduleSearch.ts` manages draft/submitted criteria, scan lifecycle, and storage.
-`scheduleSearchDates.ts` handles identifier criteria. Shared result/cache types and
-validation are in `scheduleSearchData.ts`, and result presentation is in
-`ScheduleSearchResults.tsx`.
+`scheduleSearchDates.ts` holds the identifier criteria type and normalize/compare
+helpers (despite its name, it has no date logic). Shared result/cache types, cache
+validation, formatting, and Dashboard links are in `scheduleSearchData.ts`, and result
+presentation is in `ScheduleSearchResults.tsx`.
 
 `pnpm check` includes UI TypeScript, ESLint, formatting, and Jest checks. UI test
 failures fail the root command. `pnpm build` currently only visits the custom-object
-scaffold; validate the rendered UI through `stripe apps start`.
+scaffold; validate the rendered UI through `stripe apps start`. `pnpm test:watch` runs
+vitest only (extensions/custom objects); to watch the UI Jest tests, run
+`pnpm --filter ./ui exec jest --watch`.
 
-## Local verification of the first increment
+The app version that matters for uploads is `version` in `stripe-app.yaml`; the
+`package.json` versions are not kept in sync. Stripe CLI manifest edits (such as
+`stripe apps` commands or version bumps) reformat `stripe-app.yaml` in a way Prettier
+rejects, so run `pnpm fix:format` afterward.
+
+### Test fixtures
+
+`pnpm bulk:subs -- <count> [--concurrency <n>] [--dry-run]` creates up to 10,000
+not-started lease schedules through the logged-in `stripe` CLI (default concurrency 5).
+Each schedule gets a new customer and product, the test ACH payment method
+`pm_usBankAccount` (so it works in test mode only), a 12-month monthly phase with
+`end_behavior: cancel`, and random first-phase `AccountNumber`/`ConfirmationNumber`
+metadata. `--dry-run` prints one generated fixture without calling Stripe. Use it to
+exercise pagination, pause/continue (more than 5,000 schedules), and overflow.
+
+## Local verification of search behavior
 
 Run `stripe apps start`, then open the app from the Dashboard Subscriptions page:
 
@@ -177,7 +198,8 @@ cancellation, unmount, progressive results, and cache behavior without Stripe AP
 
 ## Local verification of the default drawer
 
-After updating the manifest, restart `stripe apps start` and reload the Dashboard:
+With `stripe apps start` running (restart it after any manifest change), reload the
+Dashboard:
 
 1. Open `/subscription_schedules` in your test account and open Future Dated
    Subscriptions from the app drawer. Confirm that both identifier fields are available.
