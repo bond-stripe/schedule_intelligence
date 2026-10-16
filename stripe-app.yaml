@@ -1,5 +1,5 @@
 $schema: https://stripe.com/stripe-app/v2.0.0/schema
-id: gmf-app
+id: sub-schedules-search
 name: Future Dated Subscriptions
 version: 0.0.4
 icon: ''
