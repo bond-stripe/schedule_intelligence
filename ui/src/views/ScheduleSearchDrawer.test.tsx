@@ -147,7 +147,7 @@ describe('ScheduleSearchDrawerView', () => {
       expect(wrapper.find(Link, { target: '_blank' })).toHaveProps({
         external: true,
         href:
-          'https://dashboard.stripe.com' +
+          'https://dashboard.stripe.com/acct_1234' +
           (mode === 'test' ? '/test' : '') +
           '/subscription_schedules/sub_sched_1234',
       });

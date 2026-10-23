@@ -1,7 +1,9 @@
 import { render } from '@stripe/ui-extension-sdk/testing';
-import { Badge, Box } from '@stripe/ui-extension-sdk/ui';
+import { Badge, Box, Link } from '@stripe/ui-extension-sdk/ui';
 import ScheduleSearchResults from './ScheduleSearchResults';
-import { formatDate, type SearchResult } from './scheduleSearchData';
+import { formatDate, type SearchResult, type SearchScope } from './scheduleSearchData';
+
+const scope: SearchScope = { accountId: 'acct_1234', mode: 'test' };
 
 const result: SearchResult = {
   scheduleId: 'sub_sched_1234',
@@ -15,9 +17,34 @@ const result: SearchResult = {
   endedAt: null,
   endBehavior: 'release',
 };
+describe('schedule links', () => {
+  it.each([
+    [
+      'live',
+      'https://dashboard.stripe.com/acct_leasing/subscription_schedules/sub_sched_1234',
+    ],
+    [
+      'test',
+      'https://dashboard.stripe.com/acct_leasing/test/subscription_schedules/sub_sched_1234',
+    ],
+  ] as const)('links %s schedules to the account the app is running in', (mode, href) => {
+    const { wrapper } = render(
+      <ScheduleSearchResults
+        results={[result]}
+        scope={{ accountId: 'acct_leasing', mode }}
+      />
+    );
+    expect(wrapper.find(Link, { target: '_blank' })).toHaveProps({
+      external: true,
+      href,
+    });
+  });
+});
 describe('schedule end presentation', () => {
   it('shows Starts and Ends together, explaining a continuing subscription', () => {
-    const { wrapper } = render(<ScheduleSearchResults mode="test" results={[result]} />);
+    const { wrapper } = render(
+      <ScheduleSearchResults scope={scope} results={[result]} />
+    );
     expect(wrapper.find(Box)).toContainText('Starts ' + formatDate(result.startDate));
     expect(wrapper.find(Box)).toContainText('Ends ' + formatDate(result.endDate));
     expect(wrapper.find(Box)).toContainText(
@@ -29,7 +56,7 @@ describe('schedule end presentation', () => {
     (status) => {
       const { wrapper } = render(
         <ScheduleSearchResults
-          mode="test"
+          scope={scope}
           results={[{ ...result, status, endBehavior: 'cancel' }]}
         />
       );
@@ -44,7 +71,7 @@ describe('schedule end presentation', () => {
     (endedAt) => {
       const { wrapper } = render(
         <ScheduleSearchResults
-          mode="test"
+          scope={scope}
           results={[{ ...result, status: 'canceled', endBehavior: 'cancel', endedAt }]}
         />
       );
@@ -63,7 +90,7 @@ describe('schedule end presentation', () => {
     (status) => {
       const { wrapper } = render(
         <ScheduleSearchResults
-          mode="test"
+          scope={scope}
           results={[{ ...result, status, endedAt: 1750000000 }]}
         />
       );
@@ -79,7 +106,7 @@ describe('schedule end presentation', () => {
   );
   it('shows Unknown for absent end dates', () => {
     const { wrapper } = render(
-      <ScheduleSearchResults mode="test" results={[{ ...result, endDate: null }]} />
+      <ScheduleSearchResults scope={scope} results={[{ ...result, endDate: null }]} />
     );
     expect(wrapper.find(Box)).toContainText('Ends Unknown');
   });

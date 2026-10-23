@@ -132,9 +132,7 @@ const ScheduleSearchView = ({ scope }: { scope: SearchScope }) => {
         {cacheWarning && (
           <Banner type="caution" title="Results not saved" description={cacheWarning} />
         )}
-        {results.length > 0 && (
-          <ScheduleSearchResults mode={scope.mode} results={results} />
-        )}
+        {results.length > 0 && <ScheduleSearchResults results={results} scope={scope} />}
       </Box>
     </ContextView>
   );
