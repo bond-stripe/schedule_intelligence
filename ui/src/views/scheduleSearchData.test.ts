@@ -6,15 +6,23 @@ import {
 } from './scheduleSearchData';
 
 describe('getDashboardUrl', () => {
-  it('creates an absolute live-mode Dashboard URL', () => {
-    expect(getDashboardUrl('live', '/subscription_schedules/sub_sched_123')).toBe(
-      'https://dashboard.stripe.com/subscription_schedules/sub_sched_123'
-    );
+  it('creates an absolute live-mode Dashboard URL scoped to the account', () => {
+    expect(
+      getDashboardUrl(
+        { accountId: 'acct_1234', mode: 'live' },
+        '/subscription_schedules/sub_sched_123'
+      )
+    ).toBe('https://dashboard.stripe.com/acct_1234/subscription_schedules/sub_sched_123');
   });
 
-  it('creates an absolute test-mode Dashboard URL', () => {
-    expect(getDashboardUrl('test', '/subscription_schedules/sub_sched_123')).toBe(
-      'https://dashboard.stripe.com/test/subscription_schedules/sub_sched_123'
+  it('creates an absolute test-mode Dashboard URL scoped to the account', () => {
+    expect(
+      getDashboardUrl(
+        { accountId: 'acct_1234', mode: 'test' },
+        '/subscription_schedules/sub_sched_123'
+      )
+    ).toBe(
+      'https://dashboard.stripe.com/acct_1234/test/subscription_schedules/sub_sched_123'
     );
   });
 });

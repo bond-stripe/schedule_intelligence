@@ -1,5 +1,4 @@
 import { Badge, Box, Divider, Link } from '@stripe/ui-extension-sdk/ui';
-import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 
 import {
   formatCustomerId,
@@ -7,6 +6,7 @@ import {
   formatScheduleId,
   getDashboardUrl,
   type SearchResult,
+  type SearchScope,
   type ScheduleStatus,
 } from './scheduleSearchData';
 
@@ -22,15 +22,15 @@ const statusPresentation: Record<
 };
 
 type ScheduleSearchResultsProps = {
-  mode: ExtensionContextValue['environment']['mode'];
+  scope: SearchScope;
   onSelect?: (result: SearchResult) => void;
   results: SearchResult[];
 };
 
 const ScheduleSearchResults = ({
-  mode,
   onSelect,
   results,
+  scope,
 }: ScheduleSearchResultsProps) => (
   <Box css={{ stack: 'y', rowGap: 'medium' }}>
     {results.map((result, index) => (
@@ -48,7 +48,7 @@ const ScheduleSearchResults = ({
               <Link
                 external
                 href={getDashboardUrl(
-                  mode,
+                  scope,
                   `/subscription_schedules/${result.scheduleId}`
                 )}
                 target="_blank"

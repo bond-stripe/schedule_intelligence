@@ -49,11 +49,16 @@ export const formatDate = (timestamp: number | null) =>
         year: 'numeric',
       });
 
-/** Absolute links prevent the app host from treating navigation as another drawer. */
-export const getDashboardUrl = (
-  mode: ExtensionContextValue['environment']['mode'],
-  path: string
-) => 'https://dashboard.stripe.com' + (mode === 'test' ? '/test' : '') + path;
+/**
+ * Absolute links prevent the app host from treating navigation as another drawer.
+ * The account segment stops the Dashboard from opening the link in the user's
+ * default account when they can access more than one.
+ */
+export const getDashboardUrl = (scope: SearchScope, path: string) =>
+  'https://dashboard.stripe.com/' +
+  scope.accountId +
+  (scope.mode === 'test' ? '/test' : '') +
+  path;
 export const formatScheduleId = (scheduleId: string) =>
   'sub_sched_...' + scheduleId.slice(-4);
 export const formatCustomerId = (customerId: string) =>

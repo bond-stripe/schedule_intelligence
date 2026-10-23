@@ -5,7 +5,7 @@ import BrandIcon from './brand_icon.svg';
 import { GM_FINANCIAL_BLUE } from './branding';
 import { getDashboardUrl } from './scheduleSearchData';
 
-const Home = ({ environment }: ExtensionContextValue) => (
+const Home = ({ environment, userContext }: ExtensionContextValue) => (
   <ContextView title="" brandColor={GM_FINANCIAL_BLUE} brandIcon={BrandIcon}>
     <Box css={{ stack: 'y', rowGap: 'medium' }}>
       <Box
@@ -19,7 +19,12 @@ const Home = ({ environment }: ExtensionContextValue) => (
           stack: 'y',
         }}
       >
-        <Link href={getDashboardUrl(environment.mode, '/subscriptions')}>
+        <Link
+          href={getDashboardUrl(
+            { accountId: userContext.account.id, mode: environment.mode },
+            '/subscriptions'
+          )}
+        >
           Subscription Schedule Search
         </Link>
         <Box>Find subscription schedules by account number or confirmation number.</Box>
