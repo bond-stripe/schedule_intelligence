@@ -8,6 +8,7 @@ import {
   type ScanOutcome,
   type SearchProgress,
 } from './scheduleSearchEngine';
+import { getScheduleIndex, peekScheduleIndex, runIndexedSearch } from './scheduleIndex';
 import {
   getSearchStorageKey,
   parseCachedSearch,
@@ -65,16 +66,32 @@ export const useScheduleSearch = ({ accountId, mode }: SearchScope) => {
       : emptySearch
   );
   const [cacheWarning, setCacheWarning] = useState<string | null>(null);
-  const session = useRef<{
-    scanner: ReturnType<typeof createScheduleSearch>;
-    criteria: SearchCriteria;
-  } | null>(null);
+  // Searches use the in-memory schedule index unless the account is too large to
+  // index, in which case each search scans on its own.
+  const session = useRef<
+    | { kind: 'index'; criteria: SearchCriteria }
+    | {
+        kind: 'scan';
+        scanner: ReturnType<typeof createScheduleSearch>;
+        criteria: SearchCriteria;
+      }
+    | null
+  >(null);
   const currentRun = useRef(0);
   const running = useRef(false);
+  const getIndex = () =>
+    getScheduleIndex({ accountId, mode }, () => ({
+      listSchedules: (params) => stripe.subscriptionSchedules.list(params),
+      retrieveSchedule: (scheduleId) => stripe.subscriptionSchedules.retrieve(scheduleId),
+    }));
   useEffect(
     () => () => {
       currentRun.current += 1;
+      // Leaving the view stops background index loading; it resumes on the next search.
+      peekScheduleIndex({ accountId, mode })?.stopBuild();
     },
+    // The view is keyed by scope, so scope never changes while mounted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 
@@ -100,20 +117,33 @@ export const useScheduleSearch = ({ accountId, mode }: SearchScope) => {
     running.current = true;
     const runId = ++currentRun.current;
     setSearch((previous) => ({ ...previous, status: 'loading', error: undefined }));
+    const isCanceled = () => currentRun.current !== runId;
+    const onProgress = (progress: SearchProgress) => {
+      if (!isCanceled())
+        setSearch({
+          ...progress,
+          status: 'loading',
+          submitted: active.criteria,
+          searchedAt: null,
+        });
+    };
     let outcome: ScanOutcome;
     try {
-      outcome = await active.scanner.runBatch({
-        isCanceled: () => currentRun.current !== runId,
-        onProgress: (progress) => {
-          if (currentRun.current === runId)
-            setSearch({
-              ...progress,
-              status: 'loading',
-              submitted: active.criteria,
-              searchedAt: null,
-            });
-        },
-      });
+      if (active.kind === 'scan') {
+        outcome = await active.scanner.runBatch({ isCanceled, onProgress });
+      } else {
+        const indexed = await runIndexedSearch(getIndex(), active.criteria, {
+          isCanceled,
+          onProgress,
+        });
+        if (indexed.status === 'too_large') {
+          const scan = { ...createScanSession(active.criteria), kind: 'scan' as const };
+          session.current = scan;
+          outcome = await scan.scanner.runBatch({ isCanceled, onProgress });
+        } else {
+          outcome = indexed;
+        }
+      }
     } catch (error) {
       if (currentRun.current === runId) {
         setSearch((previous) => ({
@@ -156,17 +186,19 @@ export const useScheduleSearch = ({ accountId, mode }: SearchScope) => {
     }
   };
 
+  const createScanSession = (criteria: SearchCriteria) => ({
+    scanner: createScheduleSearch({
+      listSchedules: (params) => stripe.subscriptionSchedules.list(params),
+      accountNumber: criteria.accountNumber,
+      confirmationNumber: criteria.confirmationNumber,
+    }),
+    criteria,
+  });
+
   const searchSchedules = () => {
     if (!canSearch || running.current) return;
     const criteria = normalizeCriteria(draft);
-    session.current = {
-      scanner: createScheduleSearch({
-        listSchedules: (params) => stripe.subscriptionSchedules.list(params),
-        accountNumber: criteria.accountNumber,
-        confirmationNumber: criteria.confirmationNumber,
-      }),
-      criteria,
-    };
+    session.current = { kind: 'index', criteria };
     saveCache('');
     setSearch({ ...emptySearch, submitted: criteria });
     void runSearchBatch();
@@ -174,6 +206,7 @@ export const useScheduleSearch = ({ accountId, mode }: SearchScope) => {
   const cancelSearch = () => {
     currentRun.current += 1;
     running.current = false;
+    peekScheduleIndex({ accountId, mode })?.stopBuild();
     setSearch((previous) => ({ ...previous, status: 'canceled' }));
   };
   const startNewSearch = () => {
@@ -184,8 +217,11 @@ export const useScheduleSearch = ({ accountId, mode }: SearchScope) => {
     setSearch(emptySearch);
     saveCache('');
   };
-  const updateDraft = (changes: Partial<SearchCriteria>) =>
+  const updateDraft = (changes: Partial<SearchCriteria>) => {
+    // Start loading the index once the user starts typing an identifier.
+    if (Object.values(changes).some((value) => value?.trim())) getIndex().prepare();
     setDraft((previous) => ({ ...previous, ...changes }));
+  };
   return {
     draft,
     updateDraft,

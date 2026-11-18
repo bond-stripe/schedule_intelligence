@@ -1,1 +1,1 @@
-export const GM_FINANCIAL_BLUE = '#005A9C';
+export const BRAND_COLOR = '#005A9C';
