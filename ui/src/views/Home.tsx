@@ -2,11 +2,11 @@ import { Box, ContextView, Link } from '@stripe/ui-extension-sdk/ui';
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 
 import BrandIcon from './brand_icon.svg';
-import { GM_FINANCIAL_BLUE } from './branding';
+import { BRAND_COLOR } from './branding';
 import { getDashboardUrl } from './scheduleSearchData';
 
 const Home = ({ environment, userContext }: ExtensionContextValue) => (
-  <ContextView title="" brandColor={GM_FINANCIAL_BLUE} brandIcon={BrandIcon}>
+  <ContextView title="" brandColor={BRAND_COLOR} brandIcon={BrandIcon}>
     <Box css={{ stack: 'y', rowGap: 'medium' }}>
       <Box
         css={{

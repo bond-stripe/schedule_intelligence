@@ -5,6 +5,7 @@ import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 import { useStorage } from '@stripe/ui-extension-sdk/data';
 
 import ScheduleSearch from './ScheduleSearch';
+import { discardScheduleIndex } from './scheduleIndex';
 import ScheduleSearchDrawer from './ScheduleSearchDrawer';
 import type { CachedSearch } from './scheduleSearchData';
 import type { ListSchedulePage, SearchableSchedule } from './scheduleSearchEngine';
@@ -13,10 +14,22 @@ const mockListSchedules = jest.fn<
   ReturnType<ListSchedulePage>,
   Parameters<ListSchedulePage>
 >();
+// Schedules the list mock returned, so verification re-reads match what was listed.
+const mockListedSchedules = new Map<string, SearchableSchedule>();
+const mockRetrieveSchedule = jest.fn(async (scheduleId: string) => {
+  const found = mockListedSchedules.get(scheduleId);
+  if (!found) throw new Error('No such schedule: ' + scheduleId);
+  return found;
+});
 jest.mock('stripe', () => ({
   default: jest.fn().mockImplementation(() => ({
     subscriptionSchedules: {
-      list: (params: Parameters<ListSchedulePage>[0]) => mockListSchedules(params),
+      list: async (params: Parameters<ListSchedulePage>[0]) => {
+        const listed = await mockListSchedules(params);
+        listed?.data.forEach((item) => mockListedSchedules.set(item.id, item));
+        return listed;
+      },
+      retrieve: (scheduleId: string) => mockRetrieveSchedule(scheduleId),
     },
   })),
 }));
@@ -112,6 +125,9 @@ describe('ScheduleSearchDrawerView', () => {
   beforeEach(() => {
     storedSearch = null;
     storageWrites.mockReset();
+    discardScheduleIndex();
+    mockListedSchedules.clear();
+    mockRetrieveSchedule.mockClear();
     mockListSchedules.mockReset();
     mockListSchedules.mockResolvedValue({ data: [matchingSchedule], has_more: false });
     mockUseStorage.mockReset();

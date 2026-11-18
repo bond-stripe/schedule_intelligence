@@ -4,7 +4,7 @@ import { ContextView } from '@stripe/ui-extension-sdk/ui';
 import Home from './Home';
 
 describe('DashboardHomepageView', () => {
-  it('renders the GM Toolbar workflow home', () => {
+  it('renders the schedule search home', () => {
     const { wrapper } = render(<Home {...getMockContextProps()} />);
 
     expect(wrapper.find(ContextView)).toContainText('Subscription Schedule Search');

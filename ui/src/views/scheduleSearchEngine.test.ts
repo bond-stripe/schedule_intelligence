@@ -1,8 +1,12 @@
+import type Stripe from 'stripe';
+
 import {
   createScheduleSearch,
   enrichCustomerEmails,
   getScheduleDates,
   MAX_PAGES_PER_BATCH,
+  SCAN_CONCURRENCY,
+  splitRange,
   type ListSchedulePage,
   type SearchableSchedule,
 } from './scheduleSearchEngine';
@@ -349,5 +353,244 @@ describe('schedule search engine', () => {
       endDate: null,
       endBehavior: 'cancel',
     });
+  });
+});
+
+describe('splitRange', () => {
+  it('widens windows into the past and keeps the cursor in the newest one', () => {
+    expect(splitRange({ lt: 1000, startingAfter: 'sub_sched_9' }, 10, 4)).toEqual([
+      { gte: 990, lt: 1000, startingAfter: 'sub_sched_9' },
+      { gte: 970, lt: 990 },
+      { gte: 930, lt: 970 },
+      { lt: 930 },
+    ]);
+  });
+
+  it('stops at the lower bound and never creates empty windows', () => {
+    expect(splitRange({ gte: 960, lt: 1000 }, 10, 8)).toEqual([
+      { gte: 990, lt: 1000 },
+      { gte: 970, lt: 990 },
+      { gte: 960, lt: 970 },
+    ]);
+    expect(splitRange({ gte: 999, lt: 1000, startingAfter: 'x' }, 0, 8)).toEqual([
+      { gte: 999, lt: 1000, startingAfter: 'x' },
+    ]);
+  });
+});
+
+describe('parallel schedule scan', () => {
+  const NEWEST = 1_794_425_567;
+  type Fake = {
+    list: ListSchedulePage;
+    calls: Stripe.SubscriptionScheduleListParams[];
+    returnedIds: string[];
+    maxInFlight: () => number;
+  };
+  // Stripe lists newest first; `starting_after` resumes after the cursor object.
+  const createFakeApi = (
+    items: SearchableSchedule[],
+    fail: (callNumber: number) => unknown = () => undefined
+  ): Fake => {
+    const sorted = [...items].sort(
+      (left, right) =>
+        (right.created ?? 0) - (left.created ?? 0) || right.id.localeCompare(left.id)
+    );
+    const position = new Map(sorted.map((item, index) => [item.id, index]));
+    const calls: Stripe.SubscriptionScheduleListParams[] = [];
+    const returnedIds: string[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const list: ListSchedulePage = async (params) => {
+      calls.push(params);
+      const failure = fail(calls.length);
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      inFlight -= 1;
+      if (failure) throw failure;
+      const { gte, lt } = (params.created ?? {}) as Stripe.RangeQueryParam;
+      const after = params.starting_after
+        ? (position.get(params.starting_after) ?? -1)
+        : -1;
+      const candidates = sorted.filter(
+        (item, index) =>
+          index > after &&
+          (gte === undefined || (item.created ?? 0) >= gte) &&
+          (lt === undefined || (item.created ?? 0) < lt)
+      );
+      const data = candidates.slice(0, params.limit ?? 10);
+      returnedIds.push(...data.map((item) => item.id));
+      return { data, has_more: candidates.length > data.length };
+    };
+    return { list, calls, returnedIds, maxInFlight: () => maxInFlight };
+  };
+  // About 7 schedules per minute, with a dense burst like a bulk import.
+  const fixtures = (count: number, matchEvery = 97) =>
+    Array.from({ length: count }, (_, i) => ({
+      ...schedule(i, i % matchEvery === 0 ? '111' : 'other'),
+      created: i < 600 ? NEWEST - Math.floor(i / 3) : NEWEST - 200 - i * 9,
+    }));
+  const search = (
+    fake: Fake,
+    overrides: Partial<Parameters<typeof createScheduleSearch>[0]> = {}
+  ) =>
+    createScheduleSearch({
+      listSchedules: fake.list,
+      accountNumber: '111',
+      confirmationNumber: '',
+      sleep: async () => undefined,
+      ...overrides,
+    });
+  const expectedMatches = (items: SearchableSchedule[]) =>
+    items
+      .filter((item) => item.phases[0].metadata?.AccountNumber === '111')
+      .sort((left, right) => (right.created ?? 0) - (left.created ?? 0))
+      .map((item) => item.id);
+
+  it('scans every schedule exactly once across parallel created ranges', async () => {
+    const items = fixtures(2345);
+    const fake = createFakeApi(items);
+    const result = await search(fake).runBatch();
+
+    expect(result.status).toBe('complete');
+    expect(result.scannedScheduleCount).toBe(2345);
+    expect(fake.returnedIds).toHaveLength(2345);
+    expect(new Set(fake.returnedIds).size).toBe(2345);
+    expect(result.results.map((row) => row.scheduleId)).toEqual(expectedMatches(items));
+    expect(fake.calls[0]).toEqual({ scheduled: true, limit: 100 });
+    expect(fake.calls.some((params) => params.created !== undefined)).toBe(true);
+    expect(fake.maxInFlight()).toBeGreaterThan(1);
+    expect(fake.maxInFlight()).toBeLessThanOrEqual(SCAN_CONCURRENCY);
+  });
+
+  it('respects a lower concurrency limit', async () => {
+    const fake = createFakeApi(fixtures(1200));
+    const result = await search(fake, { concurrency: 3 }).runBatch();
+    expect(result).toMatchObject({ status: 'complete', scannedScheduleCount: 1200 });
+    expect(fake.maxInFlight()).toBe(3);
+  });
+
+  it('follows the cursor when many schedules share one created second', async () => {
+    const items = Array.from({ length: 450 }, (_, i) => ({
+      ...schedule(i, i % 10 === 0 ? '111' : 'other'),
+      created: NEWEST,
+    }));
+    const fake = createFakeApi(items);
+    const result = await search(fake).runBatch();
+    expect(result).toMatchObject({ status: 'complete', scannedScheduleCount: 450 });
+    expect(result.results).toHaveLength(45);
+    expect(new Set(fake.returnedIds).size).toBe(fake.returnedIds.length);
+  });
+
+  it('pauses at the page budget and resumes every remaining range', async () => {
+    const items = fixtures(2345);
+    const fake = createFakeApi(items);
+    const scan = search(fake, { maxPagesPerBatch: 5 });
+    let outcome = await scan.runBatch();
+    expect(outcome.status).toBe('paused');
+    expect(fake.calls).toHaveLength(5);
+    let batches = 1;
+    while (outcome.status === 'paused') {
+      outcome = await scan.runBatch();
+      batches += 1;
+    }
+    expect(batches).toBeGreaterThan(2);
+    expect(outcome.status).toBe('complete');
+    expect(outcome.scannedScheduleCount).toBe(2345);
+    expect(new Set(fake.returnedIds).size).toBe(2345);
+    expect(outcome.results.map((row) => row.scheduleId)).toEqual(expectedMatches(items));
+  });
+
+  it('backs off and retries rate-limited pages without losing data', async () => {
+    const sleep = jest.fn(async () => undefined);
+    const fake = createFakeApi(fixtures(2345), (call) =>
+      call === 3 || call === 4
+        ? Object.assign(new Error('Too many requests'), { statusCode: 429 })
+        : undefined
+    );
+    const result = await search(fake, { sleep }).runBatch();
+    expect(result).toMatchObject({ status: 'complete', scannedScheduleCount: 2345 });
+    expect(sleep).toHaveBeenCalled();
+  });
+
+  it('stops retrying a persistently rate-limited page and can resume', async () => {
+    let limited = true;
+    const fake = createFakeApi(fixtures(800), () =>
+      limited
+        ? Object.assign(new Error('Too many requests'), { statusCode: 429 })
+        : undefined
+    );
+    const scan = search(fake);
+    expect(await scan.runBatch()).toMatchObject({
+      status: 'error',
+      error: 'Too many requests',
+    });
+    limited = false;
+    expect(await scan.runBatch()).toMatchObject({
+      status: 'complete',
+      scannedScheduleCount: 800,
+    });
+  });
+
+  it('retries only unfinished ranges after a failure', async () => {
+    const items = fixtures(2345);
+    const fake = createFakeApi(items, (call) =>
+      call === 6 ? new Error('Temporarily unavailable') : undefined
+    );
+    const scan = search(fake);
+    const failed = await scan.runBatch();
+    expect(failed).toMatchObject({ status: 'error', error: 'Temporarily unavailable' });
+    const result = await scan.runBatch();
+    expect(result.status).toBe('complete');
+    expect(result.scannedScheduleCount).toBe(2345);
+    expect(result.results.map((row) => row.scheduleId)).toEqual(expectedMatches(items));
+  });
+
+  it('resumes after cancellation without skipping or double-counting', async () => {
+    const items = fixtures(2345);
+    const fake = createFakeApi(items);
+    const scan = search(fake);
+    let pages = 0;
+    const canceled = await scan.runBatch({
+      onProgress: () => {
+        pages += 1;
+      },
+      isCanceled: () => pages >= 4,
+    });
+    expect(canceled.status).toBe('canceled');
+    expect(canceled.scannedScheduleCount).toBeLessThan(2345);
+    const result = await scan.runBatch();
+    expect(result).toMatchObject({ status: 'complete', scannedScheduleCount: 2345 });
+    expect(result.results.map((row) => row.scheduleId)).toEqual(expectedMatches(items));
+  });
+
+  it('discards responses for a run superseded by a newer run', async () => {
+    const items = fixtures(2345);
+    const fake = createFakeApi(items);
+    const scan = search(fake);
+    const first = scan.runBatch();
+    const second = scan.runBatch();
+    expect((await first).status).toBe('canceled');
+    const result = await second;
+    expect(result).toMatchObject({ status: 'complete', scannedScheduleCount: 2345 });
+    expect(result.results.map((row) => row.scheduleId)).toEqual(expectedMatches(items));
+  });
+
+  it('stops all ranges at match 51 and lists retained matches newest first', async () => {
+    const items = fixtures(2345, 1);
+    const created = new Map(items.map((item) => [item.id, item.created]));
+    const fake = createFakeApi(items);
+    const result = await search(fake).runBatch();
+    expect(result.status).toBe('limit_reached');
+    expect(result.results).toHaveLength(50);
+    const dates = result.results.map((row) => created.get(row.scheduleId) ?? 0);
+    expect(dates).toEqual([...dates].sort((left, right) => right - left));
+    expect(fake.calls.length).toBeLessThan(10);
+  });
+
+  it('rejects an invalid concurrency before making requests', () => {
+    const fake = createFakeApi([]);
+    expect(() => search(fake, { concurrency: 0 })).toThrow('concurrency');
+    expect(fake.calls).toHaveLength(0);
   });
 });

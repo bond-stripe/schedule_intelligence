@@ -10,7 +10,7 @@ import {
 import type { ExtensionContextValue } from '@stripe/ui-extension-sdk/context';
 
 import BrandIcon from './brand_icon.svg';
-import { GM_FINANCIAL_BLUE } from './branding';
+import { BRAND_COLOR } from './branding';
 import { getSearchStorageKey, type SearchScope } from './scheduleSearchData';
 import ScheduleSearchResults from './ScheduleSearchResults';
 import { useScheduleSearch } from './useScheduleSearch';
@@ -36,7 +36,7 @@ const ScheduleSearchView = ({ scope }: { scope: SearchScope }) => {
     <ContextView
       title=""
       description="Future dated subscriptions only. For active subs, use main search bar"
-      brandColor={GM_FINANCIAL_BLUE}
+      brandColor={BRAND_COLOR}
       brandIcon={BrandIcon}
     >
       <Box css={{ stack: 'y', rowGap: 'large' }}>
