@@ -10,7 +10,8 @@ import {
 import { useStorage } from '@stripe/ui-extension-sdk/data';
 
 import ScheduleSearch from './ScheduleSearch';
-import { GM_FINANCIAL_BLUE } from './branding';
+import { discardScheduleIndex } from './scheduleIndex';
+import { BRAND_COLOR } from './branding';
 import { getSearchStorageKey } from './scheduleSearchData';
 import { MAX_PAGES_PER_BATCH } from './scheduleSearchEngine';
 import type { ListSchedulePage, SearchableSchedule } from './scheduleSearchEngine';
@@ -23,10 +24,22 @@ const mockRetrieveCustomer = jest.fn<
   Promise<{ id: string; email: string | null }>,
   [string]
 >();
+// Schedules the list mock returned, so verification re-reads match what was listed.
+const mockListedSchedules = new Map<string, SearchableSchedule>();
+const mockRetrieveSchedule = jest.fn(async (scheduleId: string) => {
+  const found = mockListedSchedules.get(scheduleId);
+  if (!found) throw new Error('No such schedule: ' + scheduleId);
+  return found;
+});
 jest.mock('stripe', () => ({
   default: jest.fn().mockImplementation(() => ({
     subscriptionSchedules: {
-      list: (params: Parameters<ListSchedulePage>[0]) => mockListSchedules(params),
+      list: async (params: Parameters<ListSchedulePage>[0]) => {
+        const listed = await mockListSchedules(params);
+        listed?.data.forEach((item) => mockListedSchedules.set(item.id, item));
+        return listed;
+      },
+      retrieve: (scheduleId: string) => mockRetrieveSchedule(scheduleId),
     },
     customers: {
       retrieve: (customerId: string) => mockRetrieveCustomer(customerId),
@@ -75,6 +88,9 @@ const startSearch = (wrapper: ReturnType<typeof render>['wrapper']) => {
 
 describe('ScheduleSearchView', () => {
   beforeEach(() => {
+    discardScheduleIndex();
+    mockListedSchedules.clear();
+    mockRetrieveSchedule.mockClear();
     mockListSchedules.mockReset();
     mockRetrieveCustomer.mockReset();
     mockRetrieveCustomer.mockResolvedValue({ id: 'cus_123', email: null });
@@ -86,7 +102,7 @@ describe('ScheduleSearchView', () => {
   it('renders the search criteria with scope guidance in the app header', () => {
     const { wrapper } = render(<ScheduleSearch {...getMockContextProps()} />);
     expect(wrapper.find(ContextView)).toHaveProps({
-      brandColor: GM_FINANCIAL_BLUE,
+      brandColor: BRAND_COLOR,
       description:
         'Future dated subscriptions only. For active subs, use main search bar',
     });
@@ -174,7 +190,8 @@ describe('ScheduleSearchView', () => {
     expect(mockListSchedules.mock.calls[1][0]).toMatchObject({ scheduled: true });
   });
 
-  it('reports overflow and makes no request after match 51', async () => {
+  it('reports overflow once match 51 is known while the index finishes loading', async () => {
+    const pending = deferredPage();
     mockListSchedules
       .mockResolvedValueOnce(
         page(
@@ -182,16 +199,21 @@ describe('ScheduleSearchView', () => {
           true
         )
       )
-      .mockResolvedValueOnce(page([schedule(51)], true));
+      .mockResolvedValueOnce(page([schedule(51)], true))
+      .mockReturnValueOnce(pending.promise);
     const { wrapper, update } = render(<ScheduleSearch {...getMockContextProps()} />);
     startSearch(wrapper);
     await update();
     expect(wrapper.find(Banner)).toHaveProps({ title: 'More than 50 matches' });
     expect(wrapper.find(ContextView)).not.toContainText('All 51');
-    expect(mockListSchedules).toHaveBeenCalledTimes(2);
     const cached = JSON.parse(setStoredSearch.mock.calls[1][0]);
     expect(cached.status).toBe('limit_reached');
     expect(cached.results).toHaveLength(50);
+    // The search settled while the index kept loading for later searches.
+    expect(mockListSchedules).toHaveBeenCalledTimes(3);
+    pending.resolve(page([]));
+    await update();
+    expect(wrapper.find(Banner)).toHaveProps({ title: 'More than 50 matches' });
   });
 
   it('pauses without showing a no-matches message, then continues', async () => {
@@ -211,6 +233,73 @@ describe('ScheduleSearchView', () => {
     await update();
     expect(mockListSchedules.mock.calls[20][0].starting_after).toBe('sub_sched_20');
     expect(wrapper.find(Banner)).toHaveProps({ title: 'No matching schedules' });
+  });
+
+  it('starts loading the index on typing and answers a repeat search from memory', async () => {
+    mockListSchedules.mockResolvedValue(page([schedule(1)]));
+    const { wrapper, update } = render(<ScheduleSearch {...getMockContextProps()} />);
+    expect(mockListSchedules).not.toHaveBeenCalled();
+    requireNode(wrapper.find(TextField, { label: 'Account number' })).trigger(
+      'onChange',
+      {
+        target: { value: '1' },
+      }
+    );
+    expect(mockListSchedules).toHaveBeenCalledTimes(1);
+    startSearch(wrapper);
+    await update();
+    expect(mockListSchedules).toHaveBeenCalledTimes(1);
+    expect(wrapper.find(ContextView)).toContainText('Schedule sub_sched_...ed_1');
+    expect(mockRetrieveSchedule).not.toHaveBeenCalled();
+
+    requireNode(
+      wrapper.findAll(Link).find((link) => link.text === 'Start a new search')
+    ).trigger('onPress');
+    startSearch(wrapper);
+    await update();
+    // Only new schedules are listed; the displayed match is re-read.
+    expect(mockListSchedules).toHaveBeenCalledTimes(2);
+    expect(mockListSchedules.mock.calls[1][0]).toMatchObject({
+      scheduled: true,
+      created: { gte: 0 },
+    });
+    expect(mockRetrieveSchedule).toHaveBeenCalledWith('sub_sched_1');
+    expect(wrapper.find(ContextView)).toContainText('Schedule sub_sched_...ed_1');
+  });
+
+  it('completes a parallel scan of many pages without pausing', async () => {
+    const items = Array.from({ length: 1500 }, (_, i) => ({
+      ...schedule(i, i === 700 ? '111' : 'other'),
+      created: 1_794_425_567 - i * 11,
+    }));
+    mockListSchedules.mockImplementation(async (params) => {
+      const { gte, lt } = (params.created ?? {}) as { gte?: number; lt?: number };
+      const after = params.starting_after
+        ? items.findIndex((item) => item.id === params.starting_after)
+        : -1;
+      const candidates = items.filter(
+        (item, index) =>
+          index > after &&
+          (gte === undefined || item.created >= gte) &&
+          (lt === undefined || item.created < lt)
+      );
+      return { data: candidates.slice(0, 100), has_more: candidates.length > 100 };
+    });
+    const { wrapper, update } = render(<ScheduleSearch {...getMockContextProps()} />);
+    startSearch(wrapper);
+    for (let tick = 0; tick < 100 && setStoredSearch.mock.calls.length < 2; tick += 1) {
+      await update();
+    }
+    expect(wrapper.find(ContextView)).toContainText('Schedule sub_sched_..._700');
+    expect(wrapper.find(Banner, { title: 'Search paused' })).toBeNull();
+    expect(wrapper.find(Banner, { title: 'Search incomplete' })).toBeNull();
+    expect(JSON.parse(setStoredSearch.mock.calls[1][0])).toMatchObject({
+      scannedScheduleCount: 1500,
+      status: 'complete',
+    });
+    expect(
+      mockListSchedules.mock.calls.some(([params]) => params.created !== undefined)
+    ).toBe(true);
   });
 
   it('retains partial matches on failure and retries without starting over', async () => {

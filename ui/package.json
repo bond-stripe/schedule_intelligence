@@ -23,7 +23,7 @@
     }
   },
   "license": "~~proprietary~~",
-  "name": "gmf-app-ui",
+  "name": "schedule-intelligence-ui",
   "private": true,
   "scripts": {
     "lint": "pnpm lint:types && pnpm lint:eslint",
